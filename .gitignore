@@ -1,0 +1,18 @@
+# Секреты — никогда не коммитить
+SECRETS.local.md
+gradle.properties
+local.properties
+
+# Сборка и кэши
+build/
+app/build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+captures/
+.DS_Store

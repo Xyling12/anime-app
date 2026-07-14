@@ -1,0 +1,17 @@
+# Скопируй в gradle.properties и заполни прокси (если нужен для скачивания зависимостей).
+# Реальный gradle.properties в .gitignore — содержит креды прокси.
+org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8 -Djdk.http.auth.tunneling.disabledSchemes=
+#systemProp.http.proxyHost=
+#systemProp.http.proxyPort=
+#systemProp.http.proxyUser=
+#systemProp.http.proxyPassword=
+#systemProp.https.proxyHost=
+#systemProp.https.proxyPort=
+#systemProp.https.proxyUser=
+#systemProp.https.proxyPassword=
+systemProp.jdk.http.auth.tunneling.disabledSchemes=
+android.useAndroidX=true
+android.nonTransitiveRClass=true
+kotlin.code.style=official
+org.gradle.parallel=true
+org.gradle.caching=true
