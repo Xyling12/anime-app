@@ -96,9 +96,16 @@ async function handleKodikDubs(id, res){
 }
 
 // /alapi/kodik?link=<kodikplayer url>&episode=N -> {"480":"m3u8", "720":..}
+// link приходит от клиента (query-параметр) — без белого списка это открытый SSRF
+// (сервер сходит по любому https-хосту от имени VPS). Разрешаем только сам Kodik.
+function isAllowedKodikHost(host) {
+  return /^([a-z0-9-]+\.)*kodikplayer\.com$/i.test(host);
+}
 async function handleKodik(link, episode, res) {
   try {
     let pageUrl = link.startsWith('//') ? 'https:' + link : link;
+    const host0 = (pageUrl.match(/^https?:\/\/([^/]+)/) || [])[1] || '';
+    if (!isAllowedKodikHost(host0)) { res.writeHead(400); return res.end('kodik error: недопустимый хост'); }
     if (episode) {
       const sep = pageUrl.includes('?') ? '&' : '?';
       pageUrl += `${sep}season=1&episode=${episode}`;
@@ -188,7 +195,10 @@ function tooMany(map, key, limit, windowMs) {
   return false;
 }
 function clientIp(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  // Caddy ДОПИСЫВАЕТ реальный IP в конец X-Forwarded-For, не удаляя то, что прислал клиент —
+  // поэтому доверяем ПОСЛЕДНЕМУ элементу, а не первому (иначе клиент подделывает [0] и обходит rate-limit).
+  const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  return xff[xff.length - 1] || req.socket.remoteAddress || 'unknown';
 }
 function loadUsers() { try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch (e) { return { seq: 0, users: [] }; } }
 function saveUsers(db) { fs.writeFileSync(USERS_FILE + '.tmp', JSON.stringify(db, null, 1)); fs.renameSync(USERS_FILE + '.tmp', USERS_FILE); }
@@ -219,7 +229,8 @@ function verifyToken(token) {
   if (!u) return null;
   const tv = u.tv || 0;
   const sig = crypto.createHmac('sha256', AUTH_SECRET).update(parts[0] + '.' + parts[1] + '.' + tv).digest('hex');
-  if (sig !== parts[2]) return null;
+  const a = Buffer.from(sig), b = Buffer.from(parts[2]);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   return userId;
 }
 const MAX_BODY = 64 * 1024; // защита от гигантских тел
@@ -298,8 +309,12 @@ async function handleAuth(req, res, path) {
     const b = await readBody(req);
     const db = loadUsers(); const u = db.users.find(x => x.id === user.id);
     if (u.emailVerified !== false) return jsonRes(res, 200, { ok: true });
-    if (!b || String(b.code) !== u.verifyCode || (u.verifyExp || 0) < Date.now()) return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
-    u.emailVerified = true; delete u.verifyCode; delete u.verifyExp; saveUsers(db);
+    if ((u.verifyAttempts || 0) >= 5) { delete u.verifyCode; delete u.verifyExp; saveUsers(db); return jsonRes(res, 429, { error: 'Слишком много попыток — запросите новый код' }); }
+    if (!b || String(b.code) !== u.verifyCode || (u.verifyExp || 0) < Date.now()) {
+      u.verifyAttempts = (u.verifyAttempts || 0) + 1; saveUsers(db);
+      return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
+    }
+    u.emailVerified = true; delete u.verifyCode; delete u.verifyExp; delete u.verifyAttempts; saveUsers(db);
     return jsonRes(res, 200, { ok: true });
   }
   if (path === 'resend' && req.method === 'POST') {
@@ -322,6 +337,7 @@ async function handleAuth(req, res, path) {
     if (u) {
       u.resetCode = String(Math.floor(100000 + Math.random() * 900000));
       u.resetExp = Date.now() + 15 * 60 * 1000;
+      u.resetAttempts = 0;
       saveUsers(db);
       sendMail(u.email, 'Восстановление пароля AniPulse', 'Код для смены пароля: ' + u.resetCode + '\n\nКод действует 15 минут. Если это были не вы — просто проигнорируйте письмо.');
     }
@@ -337,9 +353,14 @@ async function handleAuth(req, res, path) {
     if (password.length < 6) return jsonRes(res, 400, { error: 'Пароль: минимум 6 символов' });
     const db = loadUsers();
     const u = db.users.find(x => x.email === email);
-    if (!u || u.resetCode !== code || (u.resetExp || 0) < Date.now()) return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
+    // Лимит попыток на аккаунт — не даём подобрать 6-значный код перебором даже при обходе IP-лимита.
+    if (u && (u.resetAttempts || 0) >= 5) { delete u.resetCode; delete u.resetExp; saveUsers(db); return jsonRes(res, 429, { error: 'Слишком много попыток — запросите код заново' }); }
+    if (!u || u.resetCode !== code || (u.resetExp || 0) < Date.now()) {
+      if (u) { u.resetAttempts = (u.resetAttempts || 0) + 1; saveUsers(db); }
+      return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
+    }
     u.pass = hashPassword(password);
-    delete u.resetCode; delete u.resetExp;
+    delete u.resetCode; delete u.resetExp; delete u.resetAttempts;
     u.emailVerified = true; // владение почтой доказано кодом
     u.tv = (u.tv || 0) + 1; // отзыв всех старых токенов
     saveUsers(db);
@@ -685,7 +706,8 @@ async function handleChat(req, res) {
   if (req.method === 'GET') {
     const after = Number((req.url.match(/[?&]after=(\d+)/) || [])[1] || 0);
     const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
-    return jsonRes(res, 200, chat.messages.filter(m => m.id > after).slice(-100));
+    const out = chat.messages.filter(m => m.id > after).slice(-100).map(({ userId, ...rest }) => rest);
+    return jsonRes(res, 200, out);
   }
   if (req.method === 'POST') {
     const user = authUser(req);
@@ -715,7 +737,10 @@ async function handleComments(req, res) {
   if (req.method === 'GET') {
     if (!animeId) return jsonRes(res, 400, { error: 'animeId required' });
     const all = loadJson(COMMENTS_FILE, {});
-    return jsonRes(res, 200, (all[animeId] || []).slice(-100));
+    // userId — внутреннее поле (нужно только для admin delete-comment по id, не по userId);
+    // публично не отдаём, чтобы не облегчать перечисление аккаунтов по нику↔id.
+    const out = (all[animeId] || []).slice(-100).map(({ userId, ...rest }) => rest);
+    return jsonRes(res, 200, out);
   }
   if (req.method === 'POST') {
     const user = authUser(req);
@@ -837,19 +862,27 @@ function socialLogin(provider, extId, displayName, res, state) {
   res.writeHead(302, { Location: 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick) });
   res.end();
 }
+// CSRF-защита колбэка Яндекса: клиентский state не проверялся на возврате (login CSRF) —
+// заводим свой серверный nonce и связываем его с исходным (link-)state, как у VK.
+const yandexStateStore = new Map(); // nonce -> {linkState, exp}
 async function handleOAuthYandex(req, res, isCallback) {
   try {
     const cfg = (oauthCfg().yandex) || {};
     if (!cfg.client_id) { res.writeHead(503); return res.end('yandex oauth not configured'); }
     const q = new URL('http://x' + req.url).searchParams;
     if (!isCallback) {
+      const nonce = crypto.randomBytes(16).toString('hex');
+      yandexStateStore.set(nonce, { linkState: q.get('state') || '', exp: Date.now() + 10 * 60 * 1000 });
+      for (const [k, v] of yandexStateStore) if (v.exp < Date.now()) yandexStateStore.delete(k);
       const url = 'https://oauth.yandex.ru/authorize?response_type=code&client_id=' + cfg.client_id +
         '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/yandex/callback') +
-        '&state=' + encodeURIComponent(q.get('state') || '');
+        '&state=' + encodeURIComponent(nonce);
       res.writeHead(302, { Location: url }); return res.end();
     }
-    const code = q.get('code');
-    if (!code) { res.writeHead(400); return res.end('no code'); }
+    const code = q.get('code'), nonce = q.get('state') || '';
+    const saved = yandexStateStore.get(nonce);
+    if (!code || !saved) { res.writeHead(400); return res.end('no code/state'); }
+    yandexStateStore.delete(nonce);
     const body = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
       '&client_id=' + cfg.client_id + '&client_secret=' + cfg.client_secret;
     const tokenResp = JSON.parse((await fetchFollow('https://oauth.yandex.ru/token', { method: 'POST', body })).body.toString());
@@ -858,7 +891,7 @@ async function handleOAuthYandex(req, res, isCallback) {
       headers: { 'Authorization': 'OAuth ' + tokenResp.access_token },
     })).body.toString());
     if (!info.id) { res.writeHead(502); return res.end('yandex info error'); }
-    socialLogin('yandex', info.id, info.display_name || info.real_name || info.login, res, q.get('state') || '');
+    socialLogin('yandex', info.id, info.display_name || info.real_name || info.login, res, saved.linkState);
   } catch (e) { res.writeHead(502); res.end('oauth error: ' + e.message); }
 }
 async function handleOAuthVk(req, res, isCallback) {
