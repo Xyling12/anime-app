@@ -5,4 +5,12 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+
+    <!-- Системный сплэш (Android 12+ нативно, ниже — через compat-библиотеку core-splashscreen):
+         тёмный фон вместо белого по умолчанию, чтобы не было вспышки перед анимацией в Compose. -->
+    <style name="Theme.AnimeLib.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0C0C12</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.AnimeLib</item>
+    </style>
 </resources>

@@ -33,6 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +76,7 @@ private val tabs = listOf(
 @Composable
 fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     AnimeLibTheme {
+        var showSplash by remember { mutableStateOf(true) }
         val navController = rememberNavController()
         val backStack by navController.currentBackStackEntryAsState()
         val currentDestination = backStack?.destination
@@ -82,6 +86,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         val dmUnread by menuViewModel.dmUnread.collectAsState()
         val notifUnread by menuViewModel.notifUnread.collectAsState()
 
+        Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 if (currentTab != null) {
@@ -250,6 +255,8 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 }
             }
         }
+        }
+        if (showSplash) SplashScreen(onFinished = { showSplash = false })
         }
     }
 }

@@ -72,4 +72,5 @@ dependencies {
     implementation(libs.work.runtime)
 
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.core.splashscreen)
 }

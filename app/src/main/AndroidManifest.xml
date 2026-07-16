@@ -15,6 +15,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.AnimeLib.Splash"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:supportsPictureInPicture="true"
