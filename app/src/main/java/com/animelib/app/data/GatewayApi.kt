@@ -175,6 +175,14 @@ data class FriendsResponse(
 data class FriendActionRequest(val nick: String)
 
 @Serializable
+data class BugReportRequest(
+    val text: String,
+    val contact: String? = null,
+    val device: String? = null,
+    val osVersion: String? = null,
+)
+
+@Serializable
 data class ForgotRequest(val email: String)
 
 @Serializable
@@ -301,6 +309,13 @@ interface GatewayApi {
 
     @retrofit2.http.POST("auth/forgot")
     suspend fun forgotPassword(@retrofit2.http.Body body: ForgotRequest): kotlinx.serialization.json.JsonObject
+
+    /** bearer опционален — баг можно отправить и гостю. */
+    @retrofit2.http.POST("bugreport")
+    suspend fun sendBugReport(
+        @retrofit2.http.Header("Authorization") bearer: String?,
+        @retrofit2.http.Body body: BugReportRequest,
+    ): kotlinx.serialization.json.JsonObject
 
     /** Успешный reset сразу логинит: сервер возвращает токен. */
     @retrofit2.http.POST("auth/reset")

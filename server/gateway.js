@@ -259,6 +259,34 @@ function sendMail(to, subject, text) {
     _mailer.sendMail({ from: 'AniPulse <' + _mailer._from + '>', to, subject, text }, () => {});
   } catch (e) {}
 }
+const BUGREPORT_FILE = '/opt/anipulse/bugreport.json';
+function bugReportTo() {
+  try { return JSON.parse(fs.readFileSync(BUGREPORT_FILE, 'utf8')).to; } catch (e) {}
+  try { return JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8')).user; } catch (e) { return null; }
+}
+async function handleBugReport(req, res) {
+  if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  if (tooMany(ipHits, 'bug:' + clientIp(req), 3, 60 * 60 * 1000)) return jsonRes(res, 429, { error: 'Слишком много репортов, попробуйте позже' });
+  const to = bugReportTo();
+  if (!to) return jsonRes(res, 503, { error: 'Отправка отчётов временно недоступна' });
+  const b = await readBody(req);
+  const text = sanitizeText(b && b.text, 2000);
+  if (!text) return jsonRes(res, 400, { error: 'Опишите проблему' });
+  const contact = sanitizeText(b && b.contact, 120);
+  const device = sanitizeText(b && b.device, 80);
+  const osVersion = sanitizeText(b && b.osVersion, 40);
+  const user = authUserEarly(req);
+  const lines = [
+    user ? 'Аккаунт: ' + user.nick + ' (' + user.email + ')' : 'Аккаунт: гость',
+    contact ? 'Контакт для ответа: ' + contact : null,
+    device ? 'Устройство: ' + device : null,
+    osVersion ? 'Android: ' + osVersion : null,
+    '',
+    text,
+  ].filter(Boolean);
+  sendMail(to, 'Баг-репорт AniPulse', lines.join('\n'));
+  return jsonRes(res, 200, { ok: true });
+}
 function newVerifyCode(u) {
   u.verifyCode = String(Math.floor(100000 + Math.random() * 900000));
   u.verifyExp = Date.now() + 15 * 60 * 1000;
@@ -939,6 +967,7 @@ const server = http.createServer(async (req, res) => {
   if (findM) return handleKodikFind(findM[1], res);
   const kodikM = req.url.match(/^\/alapi\/kodik\?link=([^&]+)(?:&episode=(\d+))?/);
   if (kodikM) return handleKodik(decodeURIComponent(kodikM[1]), kodikM[2], res);
+  if (req.url.startsWith('/alapi/bugreport')) return handleBugReport(req, res);
   if (req.url.startsWith('/alapi/admin/')) return handleAdmin(req, res);
   if (req.url.startsWith('/alapi/user')) return handleUserCard(req, res);
   if (req.url.startsWith('/alapi/profile')) return handleProfileUpdate(req, res);

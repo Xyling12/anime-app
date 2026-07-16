@@ -70,4 +70,6 @@ dependencies {
     implementation(libs.media3.session)
 
     implementation(libs.work.runtime)
+
+    implementation(libs.androidx.security.crypto)
 }

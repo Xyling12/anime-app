@@ -17,6 +17,7 @@ hiltNavigation = "1.2.0"
 media3 = "1.5.0"
 workManager = "2.10.0"
 coreKtx = "1.15.0"
+securityCrypto = "1.1.0-alpha06"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +46,7 @@ media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

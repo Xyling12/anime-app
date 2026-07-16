@@ -32,6 +32,9 @@ data class ProfileState(
     val authError: String? = null,
     /** true — код восстановления отправлен, диалог показывает поля кода и нового пароля. */
     val resetCodeSent: Boolean = false,
+    val bugReportBusy: Boolean = false,
+    val bugReportError: String? = null,
+    val bugReportSent: Boolean = false,
     val avatarId: Int = 0,
     /** false — почта не подтверждена, показываем плашку с кодом. */
     val emailVerified: Boolean = true,
@@ -146,6 +149,30 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun clearAuthError() = _state.update { it.copy(authError = null, resetCodeSent = false) }
+
+    fun sendBugReport(text: String, contact: String) {
+        if (text.isBlank()) {
+            _state.update { it.copy(bugReportError = "Опишите проблему") }; return
+        }
+        _state.update { it.copy(bugReportBusy = true, bugReportError = null) }
+        viewModelScope.launch {
+            val body = com.animelib.app.data.BugReportRequest(
+                text = text.trim(),
+                contact = contact.trim().ifBlank { null },
+                device = android.os.Build.MODEL,
+                osVersion = "Android ${android.os.Build.VERSION.RELEASE}",
+            )
+            runCatching { gateway.sendBugReport(settings.authToken?.let { "Bearer $it" }, body) }
+                .onSuccess { _state.update { it.copy(bugReportBusy = false, bugReportSent = true) } }
+                .onFailure { e ->
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(bugReportBusy = false, bugReportError = msg ?: "Ошибка сети") }
+                }
+        }
+    }
+
+    fun clearBugReport() = _state.update { it.copy(bugReportError = null, bugReportSent = false) }
 
     fun currentToken(): String? = settings.authToken
 

@@ -290,8 +290,82 @@ fun ProfileScreen(
         SettingRow("Автопропуск повтора", state.autoSkipRecap, viewModel::setAutoSkipRecap)
         SettingRow("Автопереход к след. серии", state.autoNextEpisode, viewModel::setAutoNextEpisode)
 
+        var bugDialog by remember { mutableStateOf(false) }
+        TextButton(
+            onClick = { bugDialog = true },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        ) { Text("Сообщить о баге") }
+        if (bugDialog) {
+            BugReportDialog(
+                busy = state.bugReportBusy,
+                error = state.bugReportError,
+                sent = state.bugReportSent,
+                defaultContact = state.email.orEmpty(),
+                onDismiss = { bugDialog = false; viewModel.clearBugReport() },
+                onSend = viewModel::sendBugReport,
+            )
+        }
+        LaunchedEffect(state.bugReportSent) {
+            if (state.bugReportSent) bugDialog = false
+        }
+
         Spacer(Modifier.height(24.dp))
     }
+}
+
+@Composable
+private fun BugReportDialog(
+    busy: Boolean,
+    error: String?,
+    sent: Boolean,
+    defaultContact: String,
+    onDismiss: () -> Unit,
+    onSend: (String, String) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    var contact by remember { mutableStateOf(defaultContact) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сообщить о баге") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (sent) {
+                    Text("Спасибо! Отчёт отправлен.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it.take(2000) },
+                        label = { Text("Что пошло не так?") },
+                        minLines = 3,
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = contact,
+                        onValueChange = { contact = it },
+                        label = { Text("Почта для ответа (необязательно)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    if (busy) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(18.dp))
+                            Text("Отправляем…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!sent) {
+                TextButton(enabled = !busy, onClick = { onSend(text, contact) }) { Text("Отправить") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Готово") }
+            }
+        },
+        dismissButton = { if (!sent) TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 /** Открыть OAuth-вход в браузере; linkToken != null → режим привязки к текущему аккаунту. */
