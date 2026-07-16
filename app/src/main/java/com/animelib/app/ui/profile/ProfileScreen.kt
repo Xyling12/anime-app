@@ -68,12 +68,7 @@ fun ProfileScreen(
             .verticalScroll(rememberScrollState())
             .padding(top = 12.dp),
     ) {
-        Text(
-            "Профиль",
-            Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
+        // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
         // Диалог входа/регистрации
         var authDialog by remember { mutableStateOf<String?>(null) } // "login" | "register" | null

@@ -46,12 +46,7 @@ fun ScheduleScreen(
     val state by viewModel.state.collectAsState()
 
     Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
-        Text(
-            "Календарь",
-            Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
+        // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

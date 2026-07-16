@@ -67,19 +67,7 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
             .padding(top = 12.dp),
     ) {
-        // Шапка: бренд + чат
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "AniPulse",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-            )
-            // Кнопка чата переехала в выпадающее меню (раздел «Чаты»);
-            // onChatClick оставлен в сигнатуре на случай возврата ярлыка.
-        }
+        // Заголовок «AniPulse» теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
         // Баннер-карусель топ-онгоингов
         if (state.banner.isNotEmpty()) {

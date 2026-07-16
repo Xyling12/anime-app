@@ -22,8 +22,13 @@ class RootMenuViewModel @Inject constructor(
     private val settings: SettingsStore,
 ) : ViewModel() {
 
-    private val _hasUnread = MutableStateFlow(false)
-    val hasUnread: StateFlow<Boolean> = _hasUnread.asStateFlow()
+    /** Непрочитанные ЛС — бейдж на иконке чата в шапке. */
+    private val _dmUnread = MutableStateFlow(false)
+    val dmUnread: StateFlow<Boolean> = _dmUnread.asStateFlow()
+
+    /** Непрочитанные уведомления (упоминания/друзья/эпизоды) — бейдж на колокольчике. */
+    private val _notifUnread = MutableStateFlow(false)
+    val notifUnread: StateFlow<Boolean> = _notifUnread.asStateFlow()
 
     /** Шапка шторки (реактивно: обновится после логина/смены аватара). */
     val nick = MutableStateFlow(settings.authNick)
@@ -47,14 +52,15 @@ class RootMenuViewModel @Inject constructor(
         viewModelScope.launch {
             while (true) {
                 settings.authToken?.let { t ->
-                    val dmUnread = runCatching {
+                    val dm = runCatching {
                         gateway.dmList("Bearer $t").sumOf { it.unread }
                     }.getOrDefault(0)
-                    val notifUnread = runCatching {
+                    val notif = runCatching {
                         gateway.notifications("Bearer $t").count { !it.read }
                     }.getOrDefault(0)
-                    _hasUnread.value = dmUnread + notifUnread > 0
-                } ?: run { _hasUnread.value = false }
+                    _dmUnread.value = dm > 0
+                    _notifUnread.value = notif > 0
+                } ?: run { _dmUnread.value = false; _notifUnread.value = false }
                 delay(30_000)
             }
         }

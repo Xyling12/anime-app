@@ -45,12 +45,7 @@ fun LibraryScreen(
     val items = if (filter == "all") all else all.filter { it.status == filter }
 
     Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
-        Text(
-            "Моё",
-            Modifier.padding(horizontal = 16.dp),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
+        // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
         Row(
             Modifier

@@ -4,37 +4,31 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
-import kotlinx.coroutines.launch
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,13 +50,12 @@ import com.animelib.app.ui.title.TitleScreen
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
+/** Нижняя навигация (редизайн 07-16): только основные разделы контента, максимум 5. */
 private val tabs = listOf(
     Tab("home", "Главная", Icons.Filled.Home),
     Tab("catalog", "Каталог", Icons.Filled.GridView),
-    Tab("schedule", "Календарь", Icons.Filled.CalendarMonth),
     Tab("library", "Моё", Icons.Filled.CollectionsBookmark),
-    Tab("chats", "Чаты", Icons.Filled.Forum),
-    Tab("friends", "Друзья", Icons.Filled.People),
+    Tab("schedule", "Эфир", Icons.Filled.CalendarMonth),
     Tab("profile", "Профиль", Icons.Filled.Person),
 )
 
@@ -72,84 +65,66 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         val navController = rememberNavController()
         val backStack by navController.currentBackStackEntryAsState()
         val currentDestination = backStack?.destination
-        val isFullscreen = currentDestination?.route?.startsWith("player") == true ||
-            currentDestination?.route?.startsWith("title") == true
-        val hasUnread by menuViewModel.hasUnread.collectAsState()
-        val drawerState = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        // Нижняя навигация + общая шапка видны только на 5 основных вкладках;
+        // страница тайтла, плеер и второстепенные экраны (чаты/ЛС/друзья/уведомления) — во весь экран.
+        val currentTab = tabs.firstOrNull { tab -> currentDestination?.hierarchy?.any { it.route == tab.route } == true }
+        val dmUnread by menuViewModel.dmUnread.collectAsState()
+        val notifUnread by menuViewModel.notifUnread.collectAsState()
 
-        // Шторка-навигация (решение владельца 07-10): шапка с профилем + разделы.
-        androidx.compose.material3.ModalNavigationDrawer(
-            drawerState = drawerState,
-            gesturesEnabled = !isFullscreen,
-            drawerContent = {
-                androidx.compose.material3.ModalDrawerSheet(
-                    modifier = Modifier.width(300.dp),
-                ) {
-                    // Шапка: аватар + ник (тап → Профиль)
+        Scaffold(
+            topBar = {
+                if (currentTab != null) {
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                scope.launch { drawerState.close() }
-                                navController.navigate("profile") { launchSingleTop = true }
-                            }
-                            .padding(20.dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val nick by menuViewModel.nick.collectAsState()
-                        val avatarId by menuViewModel.avatarId.collectAsState()
-                        com.animelib.app.ui.common.Avatar(avatarId, 56.dp)
-                        Column(Modifier.padding(start = 14.dp)) {
-                            Text(
-                                nick ?: "Гость",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
+                        Text(
+                            if (currentTab.route == "home") "AniPulse" else currentTab.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            BadgedIconButton(
+                                icon = Icons.Filled.Forum,
+                                contentDescription = "Чаты",
+                                showBadge = dmUnread,
+                                onClick = { navController.navigate("chats") { launchSingleTop = true } },
                             )
-                            Text(
-                                if (nick != null) "Открыть профиль" else "Войти в аккаунт",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            BadgedIconButton(
+                                icon = Icons.Filled.Notifications,
+                                contentDescription = "Уведомления",
+                                showBadge = notifUnread,
+                                onClick = { navController.navigate("notifications") { launchSingleTop = true } },
                             )
                         }
                     }
-                    androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    Spacer(Modifier.size(8.dp))
-                    tabs.forEach { tab ->
-                        val selected = currentDestination?.hierarchy?.any { it.route == tab.route } == true
-                        androidx.compose.material3.NavigationDrawerItem(
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(tab.label)
-                                    if (tab.route == "chats" && hasUnread) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Box(
-                                            Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFFF3B30)),
-                                        )
+                }
+            },
+            bottomBar = {
+                if (currentTab != null) {
+                    NavigationBar {
+                        tabs.forEach { tab ->
+                            NavigationBarItem(
+                                selected = tab.route == currentTab.route,
+                                onClick = {
+                                    navController.navigate(tab.route) {
+                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
                                     }
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            selected = selected,
-                            onClick = {
-                                scope.launch { drawerState.close() }
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                                navController.popBackStack(tab.route, false)
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
+                                },
+                                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                label = { Text(tab.label) },
+                            )
+                        }
                     }
                 }
             },
-        ) {
-        Box(Modifier.fillMaxSize()) {
+        ) { padding ->
+        Box(Modifier.fillMaxSize().padding(if (currentTab != null) padding else androidx.compose.foundation.layout.PaddingValues(0.dp))) {
             NavHost(
                 navController = navController,
                 startDestination = "home",
@@ -238,35 +213,32 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                     PlayerScreen(onBack = { navController.popBackStack() })
                 }
             }
-
-            // Кнопка ☰ открывает шторку; красная точка — только при непрочитанном.
-            if (!isFullscreen) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 40.dp, end = 10.dp),
-                ) {
-                    IconButton(
-                        onClick = { scope.launch { drawerState.open() } },
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)),
-                    ) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Меню")
-                    }
-                    if (hasUnread) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 4.dp, end = 4.dp)
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFF3B30)),
-                        )
-                    }
-                }
-            }
         }
+        }
+    }
+}
+
+/** Иконка в шапке с розовой точкой-бейджем непрочитанного в углу. */
+@Composable
+private fun BadgedIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    showBadge: Boolean,
+    onClick: () -> Unit,
+) {
+    Box {
+        IconButton(onClick = onClick) {
+            Icon(icon, contentDescription = contentDescription)
+        }
+        if (showBadge) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 6.dp, end = 6.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF4D8D)),
+            )
         }
     }
 }
