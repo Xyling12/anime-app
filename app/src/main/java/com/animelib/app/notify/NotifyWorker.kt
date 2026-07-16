@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.room.Room
@@ -144,13 +146,22 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         fun ensureChannels(ctx: Context) {
             if (Build.VERSION.SDK_INT < 26) return
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val soundAttrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             listOf(
                 NotificationChannel("dm", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel("mentions", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel("social", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel("episodes", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
+                // «Все» — намеренно тихий канал (много сообщений), звук явно выключен.
                 NotificationChannel("chat", "Общий чат (режим «Все»)", NotificationManager.IMPORTANCE_LOW),
-            ).forEach { nm.createNotificationChannel(it) }
+            ).forEach { ch ->
+                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(defaultSound, soundAttrs)
+                nm.createNotificationChannel(ch)
+            }
         }
     }
 }

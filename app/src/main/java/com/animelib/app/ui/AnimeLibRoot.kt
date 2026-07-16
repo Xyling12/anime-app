@@ -3,6 +3,10 @@ package com.animelib.app.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -49,6 +53,13 @@ import com.animelib.app.ui.theme.AnimeLibTheme
 import com.animelib.app.ui.title.TitleScreen
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
+
+// Переход «вглубь» (тайтл, чаты, ЛС, друзья, уведомления) — направленный slide+fade,
+// в отличие от плоского кросс-фейда между соседними вкладками (задаётся на уровне NavHost).
+private val pushEnter = slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(280))
+private val pushExit = slideOutHorizontally(tween(280)) { -it / 6 } + fadeOut(tween(180))
+private val pushPopEnter = slideInHorizontally(tween(280)) { -it / 6 } + fadeIn(tween(280))
+private val pushPopExit = slideOutHorizontally(tween(280)) { it / 4 } + fadeOut(tween(180))
 
 /** Нижняя навигация (редизайн 07-16): только основные разделы контента, максимум 5. */
 private val tabs = listOf(
@@ -129,17 +140,22 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier,
-                enterTransition = { fadeIn(tween(220)) },
-                exitTransition = { fadeOut(tween(220)) },
-                popEnterTransition = { fadeIn(tween(220)) },
-                popExitTransition = { fadeOut(tween(220)) },
+                // Кросс-фейд между соседними вкладками (fade through: лёгкий scale добавляет глубину без направленности).
+                enterTransition = { fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.97f) },
+                exitTransition = { fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 1.03f) },
+                popEnterTransition = { fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.97f) },
+                popExitTransition = { fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 1.03f) },
             ) {
                 composable("home") {
                     com.animelib.app.ui.home.HomeScreen(
                         onTitleClick = { id -> navController.navigate("title/$id") },
                     )
                 }
-                composable("chats") {
+                composable(
+                    "chats",
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
+                ) {
                     com.animelib.app.ui.chat.ChatsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenGlobalChat = { navController.navigate("chat") },
@@ -148,13 +164,21 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         onOpenFriends = { navController.navigate("friends") },
                     )
                 }
-                composable("friends") {
+                composable(
+                    "friends",
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
+                ) {
                     com.animelib.app.ui.chat.FriendsScreen(
                         onBack = { navController.popBackStack() },
                         onWrite = { nick -> navController.navigate("dm/$nick") },
                     )
                 }
-                composable("notifications") {
+                composable(
+                    "notifications",
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
+                ) {
                     com.animelib.app.ui.chat.NotificationsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenDm = { nick -> navController.navigate("dm/$nick") },
@@ -162,14 +186,22 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         onOpenFriends = { navController.navigate("friends") },
                     )
                 }
-                composable("chat") {
+                composable(
+                    "chat",
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
+                ) {
                     com.animelib.app.ui.chat.ChatScreen(
                         onBack = { navController.popBackStack() },
                         onGoProfile = { navController.navigate("profile") },
                         onOpenDm = { nick -> navController.navigate("dm/$nick") },
                     )
                 }
-                composable("dms") {
+                composable(
+                    "dms",
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
+                ) {
                     com.animelib.app.ui.chat.DmListScreen(
                         onBack = { navController.popBackStack() },
                         onOpenThread = { nick -> navController.navigate("dm/$nick") },
@@ -178,6 +210,8 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 composable(
                     "dm/{nick}",
                     arguments = listOf(navArgument("nick") { type = NavType.StringType }),
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
                 ) {
                     com.animelib.app.ui.chat.DmChatScreen(onBack = { navController.popBackStack() })
                 }
@@ -195,6 +229,8 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 composable(
                     "title/{animeId}",
                     arguments = listOf(navArgument("animeId") { type = NavType.LongType }),
+                    enterTransition = { pushEnter }, exitTransition = { pushExit },
+                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
                 ) {
                     TitleScreen(
                         onBack = { navController.popBackStack() },

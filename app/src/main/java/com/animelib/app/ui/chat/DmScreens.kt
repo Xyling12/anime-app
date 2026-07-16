@@ -1,5 +1,8 @@
 package com.animelib.app.ui.chat
 
+import android.content.Context
+import com.animelib.app.notify.SoundPlayer
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -187,11 +190,13 @@ class DmChatViewModel @Inject constructor(
     private val gateway: GatewayApi,
     settings: SettingsStore,
     savedState: SavedStateHandle,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val token = settings.authToken
     private val withNick: String = savedState.get<String>("nick") ?: ""
     private val _state = MutableStateFlow(DmChatState(withNick = withNick, myNick = settings.authNick))
     val state: StateFlow<DmChatState> = _state.asStateFlow()
+    private var firstLoadDone = false
 
     init {
         viewModelScope.launch {
@@ -201,7 +206,11 @@ class DmChatViewModel @Inject constructor(
                     runCatching { gateway.dmThread("Bearer $t", withNick, after) }.onSuccess { fresh ->
                         if (fresh.isNotEmpty()) {
                             _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
+                            // Собственные отправленные сообщения добавляются локально в send(), сюда не попадают —
+                            // всё, что пришло пулингом, от собеседника.
+                            if (firstLoadDone) SoundPlayer.playMessageSound(context)
                         }
+                        firstLoadDone = true
                     }
                 }
                 delay(4000)

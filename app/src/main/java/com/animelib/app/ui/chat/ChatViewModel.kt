@@ -1,12 +1,15 @@
 package com.animelib.app.ui.chat
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.animelib.app.data.ChatMessage
 import com.animelib.app.data.GatewayApi
 import com.animelib.app.data.SettingsStore
 import com.animelib.app.data.TextRequest
+import com.animelib.app.notify.SoundPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +30,7 @@ data class ChatState(
 class ChatViewModel @Inject constructor(
     private val gateway: GatewayApi,
     private val settings: SettingsStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     /** Для карточки пользователя (UserCardSheet) — доступ к API и токену. */
@@ -56,6 +60,8 @@ class ChatViewModel @Inject constructor(
     )
     val state: StateFlow<ChatState> = _state.asStateFlow()
 
+    private var firstLoadDone = false
+
     init {
         // Пулинг новых сообщений каждые 4 секунды
         viewModelScope.launch {
@@ -64,7 +70,12 @@ class ChatViewModel @Inject constructor(
                 runCatching { gateway.chat(after) }.onSuccess { fresh ->
                     if (fresh.isNotEmpty()) {
                         _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
+                        // Звук — только на реально новые сообщения (не на подгрузку истории при входе) и не на свои.
+                        if (firstLoadDone && fresh.any { it.nick != _state.value.myNick }) {
+                            SoundPlayer.playMessageSound(context)
+                        }
                     }
+                    firstLoadDone = true
                 }
                 delay(4000)
             }
