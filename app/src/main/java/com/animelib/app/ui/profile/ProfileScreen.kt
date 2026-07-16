@@ -304,6 +304,18 @@ fun ProfileScreen(
             if (state.bugReportSent) bugDialog = false
         }
 
+        val legalCtx = androidx.compose.ui.platform.LocalContext.current
+        Row {
+            TextButton(
+                onClick = { openUrl(legalCtx, "https://5-42-99-195.sslip.io/privacy") },
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            ) { Text("Конфиденциальность", style = MaterialTheme.typography.labelSmall) }
+            TextButton(
+                onClick = { openUrl(legalCtx, "https://5-42-99-195.sslip.io/for-right-holders") },
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            ) { Text("Правообладателям", style = MaterialTheme.typography.labelSmall) }
+        }
+
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -364,6 +376,10 @@ private fun BugReportDialog(
 }
 
 /** Открыть OAuth-вход в браузере; linkToken != null → режим привязки к текущему аккаунту. */
+private fun openUrl(ctx: android.content.Context, url: String) {
+    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+}
+
 private fun openOAuth(ctx: android.content.Context, provider: String, linkToken: String?) {
     val state = if (linkToken != null) "link.$linkToken" else ""
     val uri = android.net.Uri.parse(
