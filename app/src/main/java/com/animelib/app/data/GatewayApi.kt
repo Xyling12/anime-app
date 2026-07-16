@@ -175,6 +175,12 @@ data class FriendsResponse(
 data class FriendActionRequest(val nick: String)
 
 @Serializable
+data class ForgotRequest(val email: String)
+
+@Serializable
+data class ResetRequest(val email: String, val code: String, val password: String)
+
+@Serializable
 data class FriendActionResponse(val state: String = "", val error: String? = null)
 
 /** Собственные эндпоинты шлюза (не прокси). */
@@ -292,6 +298,13 @@ interface GatewayApi {
 
     @retrofit2.http.POST("auth/resend")
     suspend fun resendCode(@retrofit2.http.Header("Authorization") bearer: String): kotlinx.serialization.json.JsonObject
+
+    @retrofit2.http.POST("auth/forgot")
+    suspend fun forgotPassword(@retrofit2.http.Body body: ForgotRequest): kotlinx.serialization.json.JsonObject
+
+    /** Успешный reset сразу логинит: сервер возвращает токен. */
+    @retrofit2.http.POST("auth/reset")
+    suspend fun resetPassword(@retrofit2.http.Body body: ResetRequest): AuthResponse
 
     @retrofit2.http.POST("auth/logoutall")
     suspend fun logoutAll(@retrofit2.http.Header("Authorization") bearer: String): AuthResponse

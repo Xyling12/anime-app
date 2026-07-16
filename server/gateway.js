@@ -311,6 +311,40 @@ async function handleAuth(req, res, path) {
     newVerifyCode(u); saveUsers(db);
     return jsonRes(res, 200, { ok: true });
   }
+  if (path === 'forgot' && req.method === 'POST') {
+    // Всегда отвечаем ok — не раскрываем, зарегистрирована ли почта.
+    if (tooMany(ipHits, 'fg:' + clientIp(req), 3, 60 * 1000)) return jsonRes(res, 429, { error: 'Слишком часто, подождите минуту' });
+    const b = await readBody(req);
+    const email = String((b && b.email) || '').trim().toLowerCase();
+    if (!email) return jsonRes(res, 400, { error: 'Укажите почту' });
+    const db = loadUsers();
+    const u = db.users.find(x => x.email === email);
+    if (u) {
+      u.resetCode = String(Math.floor(100000 + Math.random() * 900000));
+      u.resetExp = Date.now() + 15 * 60 * 1000;
+      saveUsers(db);
+      sendMail(u.email, 'Восстановление пароля AniPulse', 'Код для смены пароля: ' + u.resetCode + '\n\nКод действует 15 минут. Если это были не вы — просто проигнорируйте письмо.');
+    }
+    return jsonRes(res, 200, { ok: true });
+  }
+  if (path === 'reset' && req.method === 'POST') {
+    if (tooMany(ipHits, 'rs:' + clientIp(req), 5, 60 * 1000)) return jsonRes(res, 429, { error: 'Слишком много попыток' });
+    const b = await readBody(req);
+    const email = String((b && b.email) || '').trim().toLowerCase();
+    const code = String((b && b.code) || '');
+    const password = String((b && b.password) || '');
+    if (!email || !code) return jsonRes(res, 400, { error: 'Укажите почту и код' });
+    if (password.length < 6) return jsonRes(res, 400, { error: 'Пароль: минимум 6 символов' });
+    const db = loadUsers();
+    const u = db.users.find(x => x.email === email);
+    if (!u || u.resetCode !== code || (u.resetExp || 0) < Date.now()) return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
+    u.pass = hashPassword(password);
+    delete u.resetCode; delete u.resetExp;
+    u.emailVerified = true; // владение почтой доказано кодом
+    u.tv = (u.tv || 0) + 1; // отзыв всех старых токенов
+    saveUsers(db);
+    return jsonRes(res, 200, { token: makeToken(u.id), nick: u.nick, email: u.email });
+  }
   if (path === 'me') {
     const userId = verifyToken((req.headers['authorization'] || '').replace('Bearer ', ''));
     if (!userId) return jsonRes(res, 401, { error: 'Не авторизован' });

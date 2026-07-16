@@ -82,9 +82,12 @@ fun ProfileScreen(
                 mode = mode,
                 busy = state.authBusy,
                 error = state.authError,
+                resetCodeSent = state.resetCodeSent,
                 onDismiss = { authDialog = null; viewModel.clearAuthError() },
                 onLogin = viewModel::login,
                 onRegister = viewModel::register,
+                onForgot = viewModel::forgotPassword,
+                onReset = viewModel::resetPassword,
             )
         }
         // Закрыть диалог после успешного входа
@@ -305,36 +308,62 @@ private fun AuthDialog(
     mode: String,
     busy: Boolean,
     error: String?,
+    resetCodeSent: Boolean,
     onDismiss: () -> Unit,
     onLogin: (String, String) -> Unit,
     onRegister: (String, String, String, String) -> Unit,
+    onForgot: (String) -> Unit,
+    onReset: (String, String, String) -> Unit,
 ) {
     var nick by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var login by remember { mutableStateOf("") }
     var pw by remember { mutableStateOf("") }
     var pw2 by remember { mutableStateOf("") }
-    val isRegister = mode == "register"
+    var code by remember { mutableStateOf("") }
+    var step by remember { mutableStateOf(mode) } // "login" | "register" | "forgot"
+    val isRegister = step == "register"
+    val isForgot = step == "forgot"
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isRegister) "Создать аккаунт" else "Вход") },
+        title = { Text(if (isRegister) "Создать аккаунт" else if (isForgot) "Восстановление пароля" else "Вход") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (isRegister) {
+                if (isForgot) {
+                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Почта аккаунта") }, singleLine = true, enabled = !resetCodeSent)
+                    if (resetCodeSent) {
+                        Text("Код отправлен на почту (проверьте и папку «Спам»).", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Код из письма") }, singleLine = true)
+                        OutlinedTextField(
+                            value = pw, onValueChange = { pw = it }, label = { Text("Новый пароль") }, singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
+                } else if (isRegister) {
                     OutlinedTextField(value = nick, onValueChange = { nick = it }, label = { Text("Ник") }, singleLine = true)
                     OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Почта") }, singleLine = true)
                 } else {
                     OutlinedTextField(value = login, onValueChange = { login = it }, label = { Text("Ник или почта") }, singleLine = true)
                 }
-                OutlinedTextField(
-                    value = pw, onValueChange = { pw = it }, label = { Text("Пароль") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
+                if (!isForgot) {
+                    OutlinedTextField(
+                        value = pw, onValueChange = { pw = it }, label = { Text("Пароль") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                }
                 if (isRegister) {
                     OutlinedTextField(
                         value = pw2, onValueChange = { pw2 = it }, label = { Text("Подтверждение пароля") }, singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
+                    )
+                }
+                if (step == "login") {
+                    Text(
+                        "Забыли пароль?",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.clickable { step = "forgot"; pw = "" },
                     )
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -350,9 +379,14 @@ private fun AuthDialog(
             TextButton(
                 enabled = !busy,
                 onClick = {
-                    if (isRegister) onRegister(nick, email, pw, pw2) else onLogin(login, pw)
+                    when {
+                        isForgot && !resetCodeSent -> onForgot(email)
+                        isForgot -> onReset(email, code, pw)
+                        isRegister -> onRegister(nick, email, pw, pw2)
+                        else -> onLogin(login, pw)
+                    }
                 },
-            ) { Text(if (isRegister) "Зарегистрироваться" else "Войти") }
+            ) { Text(if (isRegister) "Зарегистрироваться" else if (isForgot) { if (resetCodeSent) "Сменить пароль" else "Отправить код" } else "Войти") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )

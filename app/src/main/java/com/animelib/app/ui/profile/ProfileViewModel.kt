@@ -30,6 +30,8 @@ data class ProfileState(
     val linked: List<String> = emptyList(),
     val authBusy: Boolean = false,
     val authError: String? = null,
+    /** true — код восстановления отправлен, диалог показывает поля кода и нового пароля. */
+    val resetCodeSent: Boolean = false,
     val avatarId: Int = 0,
     /** false — почта не подтверждена, показываем плашку с кодом. */
     val emailVerified: Boolean = true,
@@ -120,7 +122,30 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun clearAuthError() = _state.update { it.copy(authError = null) }
+    fun forgotPassword(email: String) {
+        if (email.isBlank()) {
+            _state.update { it.copy(authError = "Укажите почту") }; return
+        }
+        _state.update { it.copy(authBusy = true, authError = null) }
+        viewModelScope.launch {
+            runCatching { gateway.forgotPassword(com.animelib.app.data.ForgotRequest(email.trim())) }
+                .onSuccess { _state.update { it.copy(authBusy = false, resetCodeSent = true) } }
+                .onFailure { e ->
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(authBusy = false, authError = msg ?: "Ошибка сети") }
+                }
+        }
+    }
+
+    fun resetPassword(email: String, code: String, password: String) {
+        if (code.isBlank() || password.length < 6) {
+            _state.update { it.copy(authError = "Введите код и пароль (мин. 6 символов)") }; return
+        }
+        authCall { gateway.resetPassword(com.animelib.app.data.ResetRequest(email.trim(), code.trim(), password)) }
+    }
+
+    fun clearAuthError() = _state.update { it.copy(authError = null, resetCodeSent = false) }
 
     fun currentToken(): String? = settings.authToken
 
