@@ -31,23 +31,29 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     override suspend fun doWork(): Result {
         val ctx = applicationContext
-        val prefs = ctx.getSharedPreferences("anipulse_settings", Context.MODE_PRIVATE)
+        // ВАЖНО: настройки/токен живут в EncryptedSharedPreferences (SettingsStore) —
+        // прямое чтение файла anipulse_settings обычными SharedPreferences возвращало null
+        // (ключи в файле зашифрованы), а запись туда плейнтекст-ключей могла сломать
+        // шифрованное хранилище и разлогинить пользователя. Курсоры воркера — в отдельном
+        // нешифрованном файле (секретов не содержат).
+        val settings = com.anipulse.app.data.SettingsStore(ctx)
+        val prefs = ctx.getSharedPreferences("anipulse_notify_state", Context.MODE_PRIVATE)
         ensureChannels(ctx)
         val canPost = Build.VERSION.SDK_INT < 33 ||
             ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!canPost) return Result.success()
 
-        runCatching { checkServerNotifications(ctx, prefs) }
-        runCatching { checkChatAll(ctx, prefs) }
+        runCatching { checkServerNotifications(ctx, settings, prefs) }
+        runCatching { checkChatAll(ctx, settings, prefs) }
         runCatching { checkNewEpisodes(ctx, prefs) }
         return Result.success()
     }
 
     // --- Режим «Все»: пуш о любом новом сообщении общего чата (кроме своих) ---
-    private fun checkChatAll(ctx: Context, prefs: android.content.SharedPreferences) {
-        if (prefs.getString("chat_notify_mode", "mentions") != "all") return
-        if (prefs.getString("auth_token", null) == null) return
-        val myNick = prefs.getString("auth_nick", null)
+    private fun checkChatAll(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
+        if (settings.chatNotifyMode != "all") return
+        if (settings.authToken == null) return
+        val myNick = settings.authNick
         val lastId = prefs.getLong("last_chat_id", -1)
         val arr = JSONArray(httpGet("${Api.GATEWAY}chat?after=${if (lastId < 0) 0 else lastId}", null) ?: return)
         var maxId = if (lastId < 0) 0 else lastId
@@ -64,9 +70,9 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     // --- Серверные уведомления: упоминания, ЛС, друзья ---
-    private fun checkServerNotifications(ctx: Context, prefs: android.content.SharedPreferences) {
-        val token = prefs.getString("auth_token", null) ?: return
-        val mode = prefs.getString("chat_notify_mode", "mentions") ?: "mentions"
+    private fun checkServerNotifications(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
+        val token = settings.authToken ?: return
+        val mode = settings.chatNotifyMode
         val lastId = prefs.getLong("last_notif_id", 0)
         val arr = JSONArray(httpGet("${Api.GATEWAY}notifications?after=$lastId", token) ?: return)
         var maxId = lastId

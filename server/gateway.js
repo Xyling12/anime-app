@@ -200,7 +200,13 @@ function clientIp(req) {
   const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
   return xff[xff.length - 1] || req.socket.remoteAddress || 'unknown';
 }
-function loadUsers() { try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch (e) { return { seq: 0, users: [] }; } }
+// Как и loadJson ниже: отсутствие файла — норма (дефолт), битый файл — throw,
+// чтобы следующий saveUsers не затёр всю базу аккаунтов пустым дефолтом.
+function loadUsers() {
+  let raw;
+  try { raw = fs.readFileSync(USERS_FILE, 'utf8'); } catch (e) { return { seq: 0, users: [] }; }
+  try { return JSON.parse(raw); } catch (e) { throw new Error(`corrupt users store: ${e.message}`); }
+}
 function saveUsers(db) { fs.writeFileSync(USERS_FILE + '.tmp', JSON.stringify(db, null, 1)); fs.renameSync(USERS_FILE + '.tmp', USERS_FILE); }
 function hashPassword(pw, salt) {
   salt = salt || crypto.randomBytes(16).toString('hex');
@@ -409,7 +415,14 @@ async function handleAuth(req, res, path) {
 const CHAT_FILE = '/opt/anipulse/chat.json';
 const COMMENTS_FILE = '/opt/anipulse/comments.json';
 const RATINGS_FILE = '/opt/anipulse/ratings.json';
-function loadJson(f, def) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return def; } }
+// «Файла нет» → дефолт (норма при первом запуске). «Файл есть, но не парсится» → throw:
+// иначе следующий saveJson молча затёр бы всё хранилище дефолтом (полная потеря чата/ЛС и т.п.).
+// throw ловится общим обработчиком route() → клиент получит 500, данные останутся нетронуты.
+function loadJson(f, def) {
+  let raw;
+  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { return def; }
+  try { return JSON.parse(raw); } catch (e) { throw new Error(`corrupt json store ${f}: ${e.message}`); }
+}
 function saveJson(f, obj) { fs.writeFileSync(f + '.tmp', JSON.stringify(obj)); fs.renameSync(f + '.tmp', f); }
 function authUser(req) {
   const userId = verifyToken((req.headers['authorization'] || '').replace('Bearer ', ''));
@@ -469,8 +482,10 @@ async function handleDm(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы писать ЛС' });
     if (user.emailVerified === false) return jsonRes(res, 403, { error: 'Подтвердите почту: Профиль → код из письма' });
-  const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
+  // ВАЖНО: в POST-ветке файл читается ЗАНОВО после await readBody — снапшот,
+  // взятый до await, затирал бы параллельные записи (lost update + дубли id).
   if (req.method === 'GET' && req.url.startsWith('/alapi/dm/list')) {
+    const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const users = loadUsers().users;
     const out = [];
     for (const [key, msgs] of Object.entries(all.threads)) {
@@ -491,6 +506,7 @@ async function handleDm(req, res) {
     return jsonRes(res, 200, out);
   }
   if (req.method === 'GET') {
+    const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const withNick = decodeURIComponent(String((req.url.match(/[?&]with=([^&]+)/) || [])[1] || ''));
     const other = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === withNick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
@@ -514,6 +530,7 @@ async function handleDm(req, res) {
     const other = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === toNick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Нельзя писать себе' });
+    const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const key = dmKey(user.id, other.id);
     const msg = { id: ++all.seq, from: user.nick, fromAvatar: user.avatar || 0, to: other.nick, text, at: Date.now() };
     const list = all.threads[key] || [];
@@ -532,9 +549,13 @@ const FRIENDS_FILE = '/opt/anipulse/friends.json';
 const ONLINE_MS = 2 * 60 * 1000; // активность за 2 минуты = онлайн
 
 // Отметка активности: не чаще раза в 60с на пользователя, чтобы не писать файл на каждый запрос.
+// Карта чистится от устаревших записей, иначе росла бы бессрочно (по записи на юзера навсегда).
 const lastSeenMem = new Map();
 function touchLastSeen(user) {
   const now = Date.now();
+  if (lastSeenMem.size > 5000) {
+    for (const [id, t] of lastSeenMem) { if (t < now - 60 * 1000) lastSeenMem.delete(id); }
+  }
   if ((lastSeenMem.get(user.id) || 0) > now - 60 * 1000) return;
   lastSeenMem.set(user.id, now);
   const db = loadUsers();
@@ -604,9 +625,9 @@ async function handleFriends(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'Войдите' });
   const db = loadUsers();
-  const fdb = friendsDb();
-  const mine = friendsOf(fdb, user.id);
   if (req.method === 'GET') {
+    const fdb = friendsDb();
+    const mine = friendsOf(fdb, user.id);
     const toCard = id => { const u = db.users.find(x => x.id === id); return u ? publicUser(u) : null; };
     const friends = mine.friends.map(toCard).filter(Boolean)
       .sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
@@ -615,17 +636,24 @@ async function handleFriends(req, res) {
   }
   if (req.method === 'POST') {
     const b = await readBody(req);
+    // Файл дружбы читаем ПОСЛЕ await readBody: снапшот, взятый до await,
+    // затирал бы параллельные заявки (lost update / односторонняя дружба).
+    const fdb = friendsDb();
+    const mine = friendsOf(fdb, user.id);
     const nick = sanitizeText(b && b.nick, 24);
     const other = db.users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Это вы' });
     const theirs = friendsOf(fdb, other.id);
+    // Идемпотентное добавление: двойной тап/повторный запрос не плодит дубли в списках.
+    const addOnce = (arr, id) => { if (!arr.includes(id)) arr.push(id); };
     if (req.url.startsWith('/alapi/friends/add')) {
       if (mine.friends.includes(other.id)) return jsonRes(res, 200, { state: 'friends' });
       if (mine.incoming.includes(other.id)) {
         // встречная заявка — сразу дружба
         mine.incoming = mine.incoming.filter(i => i !== other.id);
-        mine.friends.push(other.id); theirs.friends.push(user.id);
+        addOnce(mine.friends, other.id); addOnce(theirs.friends, user.id);
+        theirs.incoming = theirs.incoming.filter(i => i !== user.id);
         saveJson(FRIENDS_FILE, fdb);
         addNotification(other.id, { type: 'friend_accept', from: user.nick, text: 'Теперь вы друзья!' });
         return jsonRes(res, 200, { state: 'friends' });
@@ -641,7 +669,8 @@ async function handleFriends(req, res) {
     if (req.url.startsWith('/alapi/friends/accept')) {
       if (!mine.incoming.includes(other.id)) return jsonRes(res, 400, { error: 'Нет заявки' });
       mine.incoming = mine.incoming.filter(i => i !== other.id);
-      mine.friends.push(other.id); theirs.friends.push(user.id);
+      addOnce(mine.friends, other.id); addOnce(theirs.friends, user.id);
+      theirs.incoming = theirs.incoming.filter(i => i !== user.id);
       saveJson(FRIENDS_FILE, fdb);
       addNotification(other.id, { type: 'friend_accept', from: user.nick, text: 'Принял(а) вашу заявку — теперь вы друзья!' });
       return jsonRes(res, 200, { state: 'friends' });
@@ -1038,7 +1067,19 @@ function handleRightHoldersPage(res) {
   res.end(html);
 }
 
-const server = http.createServer(async (req, res) => {
+// Любой не пойманный throw в async-хендлере раньше становился unhandledRejection
+// и валил весь процесс (полный даунтайм до рестарта systemd). Теперь: 500 клиенту,
+// лог в journal, сервер живёт дальше.
+const server = http.createServer((req, res) => {
+  route(req, res).catch((e) => {
+    console.error('handler error:', req.url, e);
+    try {
+      if (!res.headersSent) jsonRes(res, 500, { error: 'Внутренняя ошибка сервера' });
+      else res.end();
+    } catch (_) { /* сокет уже закрыт */ }
+  });
+});
+async function route(req, res) {
   if (req.url === '/privacy') return handlePrivacyPage(res);
   if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
   const dubsM = req.url.match(/^\/alapi\/kodik-dubs\?shikimoriId=(\d+)/);
@@ -1080,5 +1121,7 @@ const server = http.createServer(async (req, res) => {
     if (r.status === 200) cache.set(target, { ...r, exp: Date.now() + TTL_MS });
     res.writeHead(r.status, { 'Content-Type': r.ctype }); res.end(r.body);
   } catch (e) { res.writeHead(502); res.end('gateway error: ' + e.message); }
-});
+}
+// Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
 server.listen(8090, '127.0.0.1', () => console.log('AniPulse gateway on 127.0.0.1:8090'));
