@@ -64,18 +64,25 @@ class ProfileViewModel @Inject constructor(
     init {
         refresh()
         syncStatsToServer()
-        // Проверяем сохранённый токен и подтягиваем привязки
-        settings.authToken?.let { token ->
-            viewModelScope.launch {
-                runCatching { gateway.me("Bearer $token") }.onSuccess { me ->
-                    if (me.nick != null) {
-                        settings.avatarId = me.avatar
-                        settings.authAdmin = me.admin
-                        _state.update { it.copy(emailVerified = me.emailVerified) }
-                        _state.update { it.copy(nick = me.nick, email = me.email, linked = me.linked, avatarId = me.avatar) }
-                    } else {
-                        logout() // токен протух
-                    }
+        refreshMe()
+    }
+
+    /**
+     * Подтянуть аккаунт/привязки с сервера. Дёргается при создании экрана и на каждый
+     * RESUME — иначе после возврата из браузера с OAuth-привязкой (Яндекс/VK) кнопки
+     * «Привязать сервис» показывали устаревшее состояние до пересоздания экрана.
+     */
+    fun refreshMe() {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching { gateway.me("Bearer $token") }.onSuccess { me ->
+                if (me.nick != null) {
+                    settings.avatarId = me.avatar
+                    settings.authAdmin = me.admin
+                    _state.update { it.copy(emailVerified = me.emailVerified) }
+                    _state.update { it.copy(nick = me.nick, email = me.email, linked = me.linked, avatarId = me.avatar) }
+                } else {
+                    logout() // токен протух
                 }
             }
         }

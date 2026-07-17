@@ -970,7 +970,20 @@ async function handleOAuthVk(req, res, isCallback) {
     }
     const code = q.get('code'), state = q.get('state') || '', deviceId = q.get('device_id') || '';
     const saved = pkceStore.get(state);
-    if (!code || !saved) { res.writeHead(400); return res.end('no code/state'); }
+    if (!code || !saved) {
+      // Диагностика в journal (без секретов): что именно пришло от VK.
+      console.error('vk callback rejected:', JSON.stringify({
+        hasCode: !!code, hasState: !!state, knownState: !!saved,
+        vkError: q.get('error'), vkErrorDesc: q.get('error_description'),
+      }));
+      const human = q.get('error')
+        ? 'VK отклонил вход: ' + (q.get('error_description') || q.get('error'))
+        : (!saved && state)
+          ? 'Ссылка уже использована или устарела (10 мин) — вернитесь в приложение и попробуйте ещё раз'
+          : 'VK не вернул код авторизации — попробуйте ещё раз';
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(human);
+    }
     pkceStore.delete(state);
     const body = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
       '&code_verifier=' + saved.verifier + '&client_id=' + cfg.client_id +

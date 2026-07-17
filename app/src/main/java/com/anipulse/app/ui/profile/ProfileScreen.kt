@@ -65,7 +65,10 @@ fun ProfileScreen(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) viewModel.syncFromSettings()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.syncFromSettings()
+                viewModel.refreshMe() // привязки Яндекс/VK обновляются после возврата из браузера
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -256,8 +259,8 @@ fun ProfileScreen(
             )
             val ctx = androidx.compose.ui.platform.LocalContext.current
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "yandex", null) }, "Яндекс")
-                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "vk", null) }, "VK")
+                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "yandex", null) }, "Яндекс", badge = "Я", badgeColor = Color(0xFFFC3F1D))
+                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "vk", null) }, "VK", badge = "VK", badgeColor = Color(0xFF0077FF))
             }
         } else {
             // Привязка соцсервисов
@@ -269,13 +272,21 @@ fun ProfileScreen(
             )
             val ctx = androidx.compose.ui.platform.LocalContext.current
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val yandexLinked = "yandex" in state.linked
+                val vkLinked = "vk" in state.linked
                 SocialButton(
-                    Modifier.weight(1f).clickable { viewModel.currentToken()?.let { openOAuth(ctx, "yandex", it) } },
-                    if ("yandex" in state.linked) "Яндекс ✓" else "Яндекс",
+                    Modifier.weight(1f).then(
+                        if (yandexLinked) Modifier // уже привязан — повторная привязка не нужна
+                        else Modifier.clickable { viewModel.currentToken()?.let { openOAuth(ctx, "yandex", it) } }
+                    ),
+                    "Яндекс", badge = "Я", badgeColor = Color(0xFFFC3F1D), linked = yandexLinked,
                 )
                 SocialButton(
-                    Modifier.weight(1f).clickable { viewModel.currentToken()?.let { openOAuth(ctx, "vk", it) } },
-                    if ("vk" in state.linked) "VK ✓" else "VK",
+                    Modifier.weight(1f).then(
+                        if (vkLinked) Modifier
+                        else Modifier.clickable { viewModel.currentToken()?.let { openOAuth(ctx, "vk", it) } }
+                    ),
+                    "VK", badge = "VK", badgeColor = Color(0xFF0077FF), linked = vkLinked,
                 )
             }
             TextButton(
@@ -527,17 +538,41 @@ private fun StatCard(modifier: Modifier, value: String, label: String, icon: and
 }
 
 @Composable
-private fun SocialButton(modifier: Modifier, label: String) {
+private fun SocialButton(
+    modifier: Modifier,
+    label: String,
+    badge: String? = null,       // текст иконки-бейджа: "VK" / "Я"
+    badgeColor: Color = Color.Transparent,
+    linked: Boolean = false,
+) {
     Surface(modifier = modifier.clip(RoundedCornerShape(12.dp)), color = MaterialTheme.colorScheme.surfaceVariant) {
-        Text(
-            label,
-            Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (badge != null) {
+                Box(
+                    Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape).background(badgeColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        badge,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                if (linked) "$label ✓" else label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (linked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
     }
 }
 

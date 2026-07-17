@@ -136,6 +136,7 @@ fun PlayerScreen(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) // кастомные thumb/track у Slider
 @Composable
 private fun NativePlayer(
     state: PlayerUiState,
@@ -403,6 +404,14 @@ private fun NativePlayer(
                 ) {
                     Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
                     Box(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        // Классический вид сикбара: круглый бегунок + сплошная дорожка.
+                        // Дефолт Material3 1.3 (вертикальный «столбик» с разрывом дорожки)
+                        // на нулевой позиции выглядит оторванным от дорожки — «висит в пустоте».
+                        val sliderColors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = Color(0x55FFFFFF),
+                        )
                         Slider(
                             value = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
                             onValueChange = { frac ->
@@ -410,11 +419,24 @@ private fun NativePlayer(
                                 if (durationMs > 0) { positionMs = (frac * durationMs).toLong() }
                             },
                             onValueChangeFinished = { exo.seekTo(positionMs) },
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color(0x55FFFFFF),
-                            ),
+                            colors = sliderColors,
+                            thumb = {
+                                Box(
+                                    Modifier
+                                        .size(14.dp)
+                                        .background(Color.White, androidx.compose.foundation.shape.CircleShape),
+                                )
+                            },
+                            track = { sliderState ->
+                                SliderDefaults.Track(
+                                    sliderState = sliderState,
+                                    colors = sliderColors,
+                                    thumbTrackGapSize = 0.dp,
+                                    trackInsideCornerSize = 0.dp,
+                                    drawStopIndicator = null,
+                                    modifier = Modifier.height(4.dp),
+                                )
+                            },
                         )
                         // Метки: конец опенинга (жёлтая), начало эндинга (оранжевая)
                         if (durationMs > 0) {
