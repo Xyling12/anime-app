@@ -42,6 +42,10 @@ class CatalogViewModel @Inject constructor(
 
     private var searchJob: Job? = null
 
+    // Поколение выдачи: ответ запроса, стартовавшего до смены фильтра/жанра/поиска,
+    // не должен приземляться в уже обнулённый список (смешение старой и новой выдачи).
+    private var generation = 0
+
     init {
         loadNextPage()
         loadGenres()
@@ -62,6 +66,7 @@ class CatalogViewModel @Inject constructor(
     fun loadNextPage() {
         val s = _state.value
         if (s.isLoading || s.endReached) return
+        val gen = generation
         _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -76,6 +81,7 @@ class CatalogViewModel @Inject constructor(
                     repo.search(s.searchQuery)
                 }
             }.onSuccess { list ->
+                if (gen != generation) return@onSuccess // фильтр сменился, пока летел запрос
                 _state.update {
                     it.copy(
                         items = it.items + list,
@@ -86,6 +92,7 @@ class CatalogViewModel @Inject constructor(
                 }
                 loadPulseRatings(list.map { it.id })
             }.onFailure { e ->
+                if (gen != generation) return@onFailure
                 _state.update { it.copy(isLoading = false, error = e.message ?: "Ошибка сети") }
             }
         }
@@ -111,29 +118,33 @@ class CatalogViewModel @Inject constructor(
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             delay(400) // debounce
-            _state.update { it.copy(items = emptyList(), page = 1, endReached = false) }
+            generation++
+            _state.update { it.copy(items = emptyList(), page = 1, endReached = false, isLoading = false) }
             loadNextPage()
         }
     }
 
     fun setFilter(order: String = _state.value.order, status: String? = _state.value.status) {
+        generation++
         _state.update {
-            it.copy(order = order, status = status, items = emptyList(), page = 1, endReached = false)
+            it.copy(order = order, status = status, items = emptyList(), page = 1, endReached = false, isLoading = false)
         }
         loadNextPage()
     }
 
     fun toggleGenre(id: Long) {
+        generation++
         _state.update {
             val sel = if (id in it.selectedGenres) it.selectedGenres - id else it.selectedGenres + id
-            it.copy(selectedGenres = sel, items = emptyList(), page = 1, endReached = false)
+            it.copy(selectedGenres = sel, items = emptyList(), page = 1, endReached = false, isLoading = false)
         }
         loadNextPage()
     }
 
     fun clearGenres() {
         if (_state.value.selectedGenres.isEmpty()) return
-        _state.update { it.copy(selectedGenres = emptySet(), items = emptyList(), page = 1, endReached = false) }
+        generation++
+        _state.update { it.copy(selectedGenres = emptySet(), items = emptyList(), page = 1, endReached = false, isLoading = false) }
         loadNextPage()
     }
 
