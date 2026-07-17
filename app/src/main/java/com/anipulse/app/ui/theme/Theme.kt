@@ -31,15 +31,29 @@ private val DarkColors = darkColorScheme(
     outlineVariant = Color(0xFF2B2B3A),
 )
 
+// Новая светлая тема: чистый минимализм, белый фон, тёмный текст, акценты
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF6A4FBF),
-    background = Color(0xFFFDF8FF),
-    surface = Color(0xFFFDF8FF),
+    primary = Color(0xFF6A4FBF), // Deep purple
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFF4D8D), // Neon Pink for some accents
+    onPrimaryContainer = Color.White,
+    secondary = Color(0xFFFF4D8D),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFEBE6F3),
+    onSecondaryContainer = Color(0xFF4A4A5A),
+    background = Color(0xFFFFFFFF),
+    surface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFFF5F5F7),
+    onBackground = Color(0xFF111116),
+    onSurface = Color(0xFF111116),
+    onSurfaceVariant = Color(0xFF4A4A5A),
+    outline = Color(0xFFE0E0E0),
+    outlineVariant = Color(0xFFF0F0F0),
 )
 
 @Composable
 fun AnimeLibTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = false,
     // Фирменные цвета AniPulse всегда: динамические системные цвета ломали стиль.
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,

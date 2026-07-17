@@ -219,13 +219,21 @@ class DmChatViewModel @Inject constructor(
     }
 
     fun send(text: String) {
-        val t = token ?: return
+        val t = token
+        if (t == null) {
+            _state.update { it.copy(error = "Вы не вошли в аккаунт") }
+            return
+        }
         if (text.isBlank()) return
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             runCatching { gateway.dmSend("Bearer $t", DmSendRequest(withNick, text.trim())) }
                 .onSuccess { msg -> _state.update { it.copy(messages = it.messages + msg, sending = false) } }
-                .onFailure { _state.update { it.copy(sending = false, error = "Не удалось отправить") } }
+                .onFailure { e ->
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(sending = false, error = msg ?: "Не удалось отправить — проверьте соединение") }
+                }
         }
     }
 }
@@ -314,6 +322,14 @@ fun DmChatScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить", tint = MaterialTheme.colorScheme.onPrimary)
             }
+        }
+        state.error?.let {
+            Text(
+                it,
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 6.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

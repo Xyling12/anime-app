@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 package com.anipulse.app.ui.catalog
 
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.horizontalScroll
@@ -21,17 +23,20 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import com.anipulse.app.ui.common.PillChip
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,18 +65,38 @@ fun CatalogScreen(
     val state by viewModel.state.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = state.searchQuery,
-            onValueChange = viewModel::setSearch,
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(44.dp)
                 // справа шире — чтобы не залезать под плавающую кнопку меню ☰
-                .padding(start = 16.dp, end = 72.dp, top = 8.dp, bottom = 8.dp),
-            placeholder = { Text("Поиск аниме…") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp),
-        )
+                .padding(start = 16.dp, end = 72.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Search, 
+                    contentDescription = null, 
+                    modifier = Modifier.padding(start = 12.dp, end = 8.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                BasicTextField(
+                    value = state.searchQuery,
+                    onValueChange = viewModel::setSearch,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { innerTextField ->
+                        if (state.searchQuery.isEmpty()) {
+                            Text("Поиск аниме…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                        }
+                        innerTextField()
+                    }
+                )
+            }
+        }
 
         // Подсказки при поиске: первые совпадения, тап — открыть тайтл
         if (state.searchQuery.isNotBlank() && state.items.isNotEmpty()) {
@@ -117,29 +142,25 @@ fun CatalogScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilterChip(
+            PillChip(
                 selected = state.status == null,
                 onClick = { viewModel.setFilter(status = null) },
-                label = { Text("Все", maxLines = 1, softWrap = false) },
+                label = "Все",
             )
-            FilterChip(
+            PillChip(
                 selected = state.status == "ongoing",
                 onClick = { viewModel.setFilter(status = "ongoing") },
-                label = { Text("Онгоинги", maxLines = 1, softWrap = false) },
+                label = "Онгоинги",
             )
-            FilterChip(
+            PillChip(
                 selected = state.order == "ranked",
                 onClick = { viewModel.setFilter(order = if (state.order == "ranked") "popularity" else "ranked") },
-                label = { Text("По рейтингу", maxLines = 1, softWrap = false) },
+                label = "По рейтингу",
             )
-            FilterChip(
+            PillChip(
                 selected = state.selectedGenres.isNotEmpty(),
                 onClick = { viewModel.setGenresSheet(true) },
-                label = {
-                    val n = state.selectedGenres.size
-                    Text(if (n == 0) "Жанры" else "Жанры · $n", maxLines = 1, softWrap = false)
-                },
-                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                label = if (state.selectedGenres.isEmpty()) "Жанры" else "Жанры (${state.selectedGenres.size})"
             )
         }
 
@@ -174,10 +195,10 @@ fun CatalogScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         state.allGenres.forEach { g ->
-                            FilterChip(
+                            PillChip(
                                 selected = g.id in state.selectedGenres,
                                 onClick = { viewModel.toggleGenre(g.id) },
-                                label = { Text(g.russian?.ifBlank { null } ?: g.name) },
+                                label = g.russian?.ifBlank { null } ?: g.name,
                             )
                         }
                     }
@@ -224,14 +245,15 @@ fun CatalogScreen(
     }
 }
 
+@androidx.compose.animation.ExperimentalSharedTransitionApi
 @Composable
 fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = null) {
     Column(Modifier.clickable(onClick = onClick)) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(12.dp))
+                .aspectRatio(0.66f)
+                .clip(RoundedCornerShape(16.dp))
         ) {
             // Постер с автоподбором из открытых источников (шлюз), под ним — плейсхолдер
             Box(
@@ -249,10 +271,26 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            
+            val sharedTransitionScope = com.anipulse.app.ui.LocalSharedTransitionScope.current
+            val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
+            
             AsyncImage(
-                model = posterOf(anime.id, anime.image),
+                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    .data(posterOf(anime.id, anime.image))
+                    .memoryCacheKey("poster_${anime.id}")
+                    .build(),
                 contentDescription = anime.russian ?: anime.name,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        with(sharedTransitionScope) {
+                            Modifier.sharedElement(
+                                rememberSharedContentState(key = "poster_${anime.id}"),
+                                animatedVisibilityScope = animatedVisibilityScope
+                            )
+                        }
+                    } else Modifier
+                ),
                 contentScale = ContentScale.Crop,
             )
             anime.score?.takeIf { it != "0.0" }?.let { score ->

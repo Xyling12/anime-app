@@ -96,4 +96,9 @@ class SettingsStore @Inject constructor(
     var avatarId: Int
         get() = prefs.getInt("avatar_id", 0)
         set(v) = prefs.edit().putInt("avatar_id", v).apply()
+
+    /** Тёмная тема — фирменная, по умолчанию включена (весь UI построен под тёмный фон). */
+    var isDarkTheme: Boolean
+        get() = prefs.getBoolean("is_dark_theme", true)
+        set(v) = prefs.edit().putBoolean("is_dark_theme", v).apply()
 }

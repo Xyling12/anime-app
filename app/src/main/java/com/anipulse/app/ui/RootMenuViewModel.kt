@@ -33,6 +33,13 @@ class RootMenuViewModel @Inject constructor(
     /** Шапка шторки (реактивно: обновится после логина/смены аватара). */
     val nick = MutableStateFlow(settings.authNick)
     val avatarId = MutableStateFlow(settings.avatarId)
+    val isDarkTheme = MutableStateFlow(settings.isDarkTheme)
+    
+    fun toggleDarkTheme() {
+        val newTheme = !isDarkTheme.value
+        settings.isDarkTheme = newTheme
+        isDarkTheme.value = newTheme
+    }
 
     init {
         // Актуализируем ник/аватар с сервера (prefs может не знать ник после OAuth-входа)

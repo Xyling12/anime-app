@@ -50,7 +50,7 @@ class TitleViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val animeId: Long = checkNotNull(savedStateHandle["animeId"])
+    val animeId: Long = checkNotNull(savedStateHandle["animeId"])
 
     private val _state = MutableStateFlow(TitleState())
     val state: StateFlow<TitleState> = _state.asStateFlow()

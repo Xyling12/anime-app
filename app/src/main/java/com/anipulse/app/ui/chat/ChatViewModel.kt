@@ -83,7 +83,11 @@ class ChatViewModel @Inject constructor(
     }
 
     fun send(text: String, replyTo: Long? = null) {
-        val token = settings.authToken ?: return
+        val token = settings.authToken
+        if (token == null) {
+            _state.update { it.copy(error = "Вы не вошли в аккаунт") }
+            return
+        }
         if (text.isBlank()) return
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
@@ -91,8 +95,12 @@ class ChatViewModel @Inject constructor(
                 .onSuccess { msg ->
                     _state.update { it.copy(messages = it.messages + msg, sending = false) }
                 }
-                .onFailure {
-                    _state.update { it.copy(sending = false, error = "Не удалось отправить") }
+                .onFailure { e ->
+                    // Раньше показывали общее «Не удалось отправить» — теперь настоящую причину
+                    // с сервера (неподтверждённая почта, бан, лимит частоты), как в ProfileViewModel.
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(sending = false, error = msg ?: "Не удалось отправить — проверьте соединение") }
                 }
         }
     }

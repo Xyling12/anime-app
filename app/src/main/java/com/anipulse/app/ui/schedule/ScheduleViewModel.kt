@@ -27,6 +27,7 @@ data class DaySection(
 data class ScheduleState(
     val tab: Int = 0, // 0 = расписание, 1 = обновления
     val days: List<DaySection> = emptyList(),
+    val selectedDayDate: LocalDate? = null,
     val updates: List<AnilibriaUpdate> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
@@ -53,6 +54,8 @@ class ScheduleViewModel @Inject constructor(
 
     fun setTab(tab: Int) = _state.update { it.copy(tab = tab) }
 
+    fun selectDay(date: LocalDate) = _state.update { it.copy(selectedDayDate = date) }
+
     fun load() {
         _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
@@ -64,7 +67,10 @@ class ScheduleViewModel @Inject constructor(
                 _state.update { it.copy(isLoading = false, error = "Не удалось загрузить расписание") }
                 return@launch
             }
-            _state.update { it.copy(days = groupByDay(cal), updates = upd, isLoading = false) }
+            val groupedDays = groupByDay(cal)
+            val todayDate = LocalDate.now(MSK)
+            val initialDate = groupedDays.firstOrNull { it.date == todayDate }?.date ?: groupedDays.firstOrNull()?.date
+            _state.update { it.copy(days = groupedDays, selectedDayDate = it.selectedDayDate ?: initialDate, updates = upd, isLoading = false) }
         }
     }
 
@@ -90,11 +96,11 @@ class ScheduleViewModel @Inject constructor(
             }
     }
 
-    /** «HH:mm (москва)» для карточки расписания. */
+    /** «HH:mm\nмск» для карточки расписания. */
     fun timeOf(entry: ShikiCalendarEntry): String? =
         entry.nextEpisodeAt
             ?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(MSK) }.getOrNull() }
-            ?.let { "%d:%02d (москва)".format(it.hour, it.minute) }
+            ?.let { "%d:%02d\nмск".format(it.hour, it.minute) }
 
     /** «сегодня/вчера, HH:mm» для ленты обновлений. */
     fun freshLabel(update: AnilibriaUpdate): String? {

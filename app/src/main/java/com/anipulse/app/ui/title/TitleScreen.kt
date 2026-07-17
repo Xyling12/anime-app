@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 package com.anipulse.app.ui.title
 
 import androidx.compose.foundation.background
@@ -85,10 +86,11 @@ fun TitleScreen(
         )
     }
 
+    val sharedTransitionScope = com.anipulse.app.ui.LocalSharedTransitionScope.current
+    val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
+    val animeId = viewModel.animeId
+    
     when {
-        state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
         state.error != null -> Column(
             Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -98,16 +100,29 @@ fun TitleScreen(
             TextButton(onClick = viewModel::load) { Text("Повторить") }
         }
         else -> {
-            val d = state.details ?: return
-            val displayTitle = d.russian?.ifBlank { null } ?: d.name
+            val d = state.details
+            val displayTitle = d?.russian?.ifBlank { null } ?: d?.name
 
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
                     Box(Modifier.fillMaxWidth().height(340.dp)) {
                         AsyncImage(
-                            model = posterOf(d.id, d.image),
+                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                .data(posterOf(animeId, d?.image))
+                                .memoryCacheKey("poster_$animeId")
+                                .build(),
                             contentDescription = displayTitle,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().then(
+                                if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                    with(sharedTransitionScope) {
+                                        @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+                                        Modifier.sharedElement(
+                                            rememberSharedContentState(key = "poster_$animeId"),
+                                            animatedVisibilityScope = animatedVisibilityScope
+                                        )
+                                    }
+                                } else Modifier
+                            ),
                             contentScale = ContentScale.Crop,
                         )
                         Box(
@@ -127,97 +142,108 @@ fun TitleScreen(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                         }
-                        IconButton(
-                            onClick = viewModel::toggleFavorite,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 36.dp, end = 8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x66000000)),
-                        ) {
-                            Icon(
-                                if (state.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                contentDescription = if (state.isFavorite) "Убрать из «Моё»" else "В «Моё»",
-                                tint = if (state.isFavorite) Color(0xFFEF5350) else Color.White,
-                            )
-                        }
-                        Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                            Text(displayTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text(
-                                listOfNotNull(
-                                    d.score?.takeIf { it != "0.0" }?.let { "★ $it" },
-                                    d.airedOn?.take(4),
-                                    d.kind?.uppercase(),
-                                    "${d.episodesAired.takeIf { it > 0 } ?: d.episodes} эп.",
-                                ).joinToString("  ·  "),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        if (d != null) {
+                            IconButton(
+                                onClick = viewModel::toggleFavorite,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 36.dp, end = 8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x66000000)),
+                            ) {
+                                Icon(
+                                    if (state.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                    contentDescription = if (state.isFavorite) "Убрать из «Моё»" else "В «Моё»",
+                                    tint = if (state.isFavorite) Color(0xFFEF5350) else Color.White,
+                                )
+                            }
+                            Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                                Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    listOfNotNull(
+                                        d.score?.takeIf { it != "0.0" }?.let { "★ $it" },
+                                        d.airedOn?.take(4),
+                                        d.episodes?.let { "Эп: $it" },
+                                        d.kind?.uppercase(),
+                                    ).joinToString(" • "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
 
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(d.genres) { g -> AssistChip(onClick = {}, label = { Text(g.russian ?: g.name) }) }
-                    }
-                }
-
-                d.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                if (state.isLoading || d == null) {
                     item {
-                        // Свёрнутое описание: 4 строки + «Развернуть»/«Свернуть»
-                        var expanded by remember { mutableStateOf(false) }
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            Text(
-                                desc.replace(Regex("\\[[^]]*]"), ""),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = if (expanded) Int.MAX_VALUE else 4,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                if (expanded) "Свернуть" else "Развернуть",
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+
+                if (!state.isLoading && d != null) {
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(d.genres) { g -> AssistChip(onClick = {}, label = { Text(g.russian ?: g.name) }) }
+                        }
+                    }
+
+                    d.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                        item {
+                            // Свёрнутое описание: 4 строки + «Развернуть»/«Свернуть»
+                            var expanded by remember { mutableStateOf(false) }
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    desc.replace(Regex("\\[[^]]*]"), ""),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = if (expanded) Int.MAX_VALUE else 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    if (expanded) "Свернуть" else "Развернуть",
+                                    Modifier
+                                        .clickable { expanded = !expanded }
+                                        .padding(top = 4.dp, bottom = 2.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+
+                    // Большая кнопка «Смотреть/Продолжить» — без поиска серии в списке
+                    if (state.dubs.isNotEmpty()) {
+                        item {
+                            val (ep, posMs) = viewModel.resumeTarget()
+                            val sec = posMs / 1000
+                            Row(
                                 Modifier
-                                    .clickable { expanded = !expanded }
-                                    .padding(top = 4.dp, bottom = 2.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF4D8D))))
+                                    .clickable { viewModel.prepareSession(ep, startOver = false); onPlay() }
+                                    .padding(vertical = 14.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (sec > 0) "Продолжить · Серия $ep (%d:%02d)".format(sec / 60, sec % 60)
+                                    else "Смотреть · Серия $ep",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
-                }
-
-                // Большая кнопка «Смотреть/Продолжить» — без поиска серии в списке
-                if (state.dubs.isNotEmpty()) {
-                    item {
-                        val (ep, posMs) = viewModel.resumeTarget()
-                        val sec = posMs / 1000
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF4D8D))))
-                                .clickable { viewModel.prepareSession(ep, startOver = false); onPlay() }
-                                .padding(vertical = 14.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                if (sec > 0) "Продолжить · Серия $ep (%d:%02d)".format(sec / 60, sec % 60)
-                                else "Смотреть · Серия $ep",
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                }
 
                 // Статус в «Моё»: Смотрю / В планах / Просмотрено
                 item {
@@ -392,7 +418,7 @@ fun TitleScreen(
                             repeat(5 - rowEps.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
-                }
+                } // End of if (state.dubs.isNotEmpty())
 
                 // Комментарии
                 item {
@@ -480,6 +506,7 @@ fun TitleScreen(
                 }
 
                 item { Spacer(Modifier.height(24.dp)) }
+                } // End of if (!state.isLoading && d != null)
             }
         }
     }

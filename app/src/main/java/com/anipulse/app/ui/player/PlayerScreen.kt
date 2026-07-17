@@ -289,7 +289,7 @@ private fun NativePlayer(
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
+                (android.view.LayoutInflater.from(ctx).inflate(com.anipulse.app.R.layout.player_view, null) as PlayerView).apply {
                     player = exo
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT

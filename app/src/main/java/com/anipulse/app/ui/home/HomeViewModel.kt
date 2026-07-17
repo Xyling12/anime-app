@@ -49,7 +49,7 @@ class HomeViewModel @Inject constructor(
             val ong = ongoing.await()
             _state.update {
                 it.copy(
-                    banner = ong.take(6),
+                    banner = ong.shuffled().take(8),
                     popular = popular.await(),
                     topRated = ranked.await(),
                     isLoading = false,

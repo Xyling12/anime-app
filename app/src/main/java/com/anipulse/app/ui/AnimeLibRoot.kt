@@ -5,6 +5,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -12,17 +14,24 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +39,13 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,28 +70,35 @@ import com.anipulse.app.ui.player.PlayerScreen
 import com.anipulse.app.ui.theme.AnimeLibTheme
 import com.anipulse.app.ui.title.TitleScreen
 
-private data class Tab(val route: String, val label: String, val icon: ImageVector)
+@OptIn(ExperimentalSharedTransitionApi::class)
+val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 
-// Переход «вглубь» (тайтл, чаты, ЛС, друзья, уведомления) — направленный slide+fade,
-// в отличие от плоского кросс-фейда между соседними вкладками (задаётся на уровне NavHost).
-private val pushEnter = slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(280))
-private val pushExit = slideOutHorizontally(tween(280)) { -it / 6 } + fadeOut(tween(180))
-private val pushPopEnter = slideInHorizontally(tween(280)) { -it / 6 } + fadeIn(tween(280))
-private val pushPopExit = slideOutHorizontally(tween(280)) { it / 4 } + fadeOut(tween(180))
+@OptIn(ExperimentalSharedTransitionApi::class)
+val LocalAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
+
+private data class Tab(val route: String, val label: String, val activeIcon: ImageVector, val inactiveIcon: ImageVector)
+
+// Переход «вглубь» (тайтл, чаты, ЛС, друзья, уведомления) — красивый "всплывающий" эффект
+// (в стиле iOS: масштаб + появление)
+private val pushEnter = fadeIn(tween(350, easing = FastOutSlowInEasing)) + scaleIn(tween(350, easing = FastOutSlowInEasing), initialScale = 0.85f)
+private val pushExit = fadeOut(tween(300, easing = FastOutSlowInEasing)) + scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = 1.05f)
+private val pushPopEnter = fadeIn(tween(350, easing = FastOutSlowInEasing)) + scaleIn(tween(350, easing = FastOutSlowInEasing), initialScale = 1.05f)
+private val pushPopExit = fadeOut(tween(300, easing = FastOutSlowInEasing)) + scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = 0.85f)
 
 /** Нижняя навигация (редизайн 07-16): только основные разделы контента, максимум 5. */
 private val tabs = listOf(
-    Tab("home", "Главная", Icons.Filled.Home),
-    Tab("catalog", "Каталог", Icons.Filled.GridView),
-    Tab("library", "Моё", Icons.Filled.CollectionsBookmark),
-    Tab("schedule", "Эфир", Icons.Filled.CalendarMonth),
-    Tab("profile", "Профиль", Icons.Filled.Person),
+    Tab("home", "Главная", Icons.Rounded.Home, Icons.Outlined.Home),
+    Tab("catalog", "Каталог", Icons.Rounded.Explore, Icons.Outlined.Explore),
+    Tab("schedule", "Эфир", Icons.Rounded.CalendarToday, Icons.Outlined.CalendarToday),
+    Tab("library", "Моё", Icons.Rounded.VideoLibrary, Icons.Outlined.VideoLibrary),
+    Tab("profile", "Профиль", Icons.Rounded.Person, Icons.Outlined.PersonOutline),
 )
 
 @Composable
 fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
-    AnimeLibTheme {
-        var showSplash by remember { mutableStateOf(true) }
+    val isDarkTheme by menuViewModel.isDarkTheme.collectAsState()
+    AnimeLibTheme(darkTheme = isDarkTheme) {
+
         val navController = rememberNavController()
         val backStack by navController.currentBackStackEntryAsState()
         val currentDestination = backStack?.destination
@@ -90,13 +112,17 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         Scaffold(
             topBar = {
                 if (currentTab != null) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                    androidx.compose.material3.Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
+                        Row(
+                            Modifier
+                                .statusBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                         Text(
                             if (currentTab.route == "home") "AniPulse" else currentTab.label,
                             style = MaterialTheme.typography.titleMedium,
@@ -117,14 +143,20 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             )
                         }
                     }
+                    }
                 }
             },
             bottomBar = {
                 if (currentTab != null) {
-                    NavigationBar {
+                    NavigationBar(
+                        modifier = Modifier.height(60.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp,
+                    ) {
                         tabs.forEach { tab ->
+                            val selected = tab.route == currentTab.route
                             NavigationBarItem(
-                                selected = tab.route == currentTab.route,
+                                selected = selected,
                                 onClick = {
                                     navController.navigate(tab.route) {
                                         popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -132,8 +164,15 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                                         restoreState = true
                                     }
                                 },
-                                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                                label = { Text(tab.label) },
+                                icon = { Icon(if (selected) tab.activeIcon else tab.inactiveIcon, contentDescription = tab.label) },
+                                alwaysShowLabel = false,
+                                colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                                    indicatorColor = Color.Transparent,
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
                         }
                     }
@@ -141,21 +180,29 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             },
         ) { padding ->
         Box(Modifier.fillMaxSize().padding(if (currentTab != null) padding else androidx.compose.foundation.layout.PaddingValues(0.dp))) {
-            NavHost(
-                navController = navController,
-                startDestination = "home",
-                modifier = Modifier,
-                // Кросс-фейд между соседними вкладками (fade through: лёгкий scale добавляет глубину без направленности).
-                enterTransition = { fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.97f) },
-                exitTransition = { fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 1.03f) },
-                popEnterTransition = { fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.97f) },
-                popExitTransition = { fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 1.03f) },
-            ) {
-                composable("home") {
-                    com.anipulse.app.ui.home.HomeScreen(
-                        onTitleClick = { id -> navController.navigate("title/$id") },
-                    )
-                }
+            @OptIn(ExperimentalSharedTransitionApi::class)
+            SharedTransitionLayout {
+                CompositionLocalProvider(LocalSharedTransitionScope provides this@SharedTransitionLayout) {
+                    NavHost(
+                        navController = navController,
+                        startDestination = "home",
+                        modifier = Modifier,
+                        enterTransition = {
+                            fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.98f)
+                        },
+                        exitTransition = {
+                            fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 1.02f)
+                        },
+                        popEnterTransition = { fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.98f) },
+                        popExitTransition = { fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 1.02f) },
+                    ) {
+                        composable("home") {
+                            CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                                com.anipulse.app.ui.home.HomeScreen(
+                                    onTitleClick = { id -> navController.navigate("title/$id") },
+                                )
+                            }
+                        }
                 composable(
                     "chats",
                     enterTransition = { pushEnter }, exitTransition = { pushExit },
@@ -221,15 +268,24 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                     com.anipulse.app.ui.chat.DmChatScreen(onBack = { navController.popBackStack() })
                 }
                 composable("catalog") {
-                    CatalogScreen(onTitleClick = { id -> navController.navigate("title/$id") })
+                    CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                        CatalogScreen(onTitleClick = { id -> navController.navigate("title/$id") })
+                    }
                 }
                 composable("schedule") {
-                    com.anipulse.app.ui.schedule.ScheduleScreen(onTitleClick = { id -> navController.navigate("title/$id") })
+                    CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                        com.anipulse.app.ui.schedule.ScheduleScreen(onTitleClick = { id -> navController.navigate("title/$id") })
+                    }
                 }
                 composable("library") {
                     com.anipulse.app.ui.library.LibraryScreen(onTitleClick = { id -> navController.navigate("title/$id") })
                 }
-                composable("profile") { com.anipulse.app.ui.profile.ProfileScreen() }
+                composable("profile") { 
+                    com.anipulse.app.ui.profile.ProfileScreen(
+                        isDarkTheme = isDarkTheme,
+                        onThemeToggle = { menuViewModel.toggleDarkTheme() }
+                    ) 
+                }
 
                 composable(
                     "title/{animeId}",
@@ -237,10 +293,12 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                     enterTransition = { pushEnter }, exitTransition = { pushExit },
                     popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
                 ) {
-                    TitleScreen(
-                        onBack = { navController.popBackStack() },
-                        onPlay = { navController.navigate("player") },
-                    )
+                    CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                        TitleScreen(
+                            onBack = { navController.popBackStack() },
+                            onPlay = { navController.navigate("player") },
+                        )
+                    }
                 }
 
                 composable(
@@ -256,9 +314,10 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             }
         }
         }
-        if (showSplash) SplashScreen(onFinished = { showSplash = false })
         }
     }
+    }
+}
 }
 
 /** Иконка в шапке с розовой точкой-бейджем непрочитанного в углу. */

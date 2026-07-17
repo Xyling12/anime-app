@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 package com.anipulse.app.ui.home
 
 import androidx.compose.foundation.background
@@ -34,11 +35,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -64,6 +69,7 @@ fun HomeScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .clipToBounds()
             .verticalScroll(rememberScrollState())
             .padding(top = 12.dp),
     ) {
@@ -71,7 +77,16 @@ fun HomeScreen(
 
         // Баннер-карусель топ-онгоингов
         if (state.banner.isNotEmpty()) {
-            val pagerState = rememberPagerState(pageCount = { state.banner.size })
+            val pageCount = 10000
+            val startIndex = pageCount / 2
+            val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { pageCount })
+            
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(15000)
+                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                }
+            }
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
@@ -80,16 +95,21 @@ fun HomeScreen(
                     .height(200.dp),
                 pageSpacing = 12.dp,
             ) { page ->
-                val anime = state.banner[page]
+                val realIndex = page % state.banner.size
+                val anime = state.banner[realIndex]
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(20.dp))
+                        .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color(0xFFFF4D8D).copy(alpha = 0.4f))
+                        .clip(RoundedCornerShape(24.dp))
                         .clickable { onTitleClick(anime.id) },
                 ) {
                     AsyncImage(
-                        model = posterOf(anime.id, anime.image),
-                        contentDescription = null,
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(posterOf(anime.id, anime.image))
+                            .memoryCacheKey("poster_${anime.id}")
+                            .build(),
+                        contentDescription = anime.russian ?: anime.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
@@ -127,7 +147,7 @@ fun HomeScreen(
                                 Modifier
                                     .clip(RoundedCornerShape(50))
                                     .background(PulseGradient)
-                                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                                    .padding(horizontal = 20.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -139,17 +159,16 @@ fun HomeScreen(
                 }
             }
             // Индикатор страниц
-            Row(
-                Modifier.align(Alignment.CenterHorizontally),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.Center) {
                 repeat(state.banner.size) { i ->
+                    val selected = (pagerState.currentPage % state.banner.size) == i
                     Box(
                         Modifier
-                            .size(if (i == pagerState.currentPage) 8.dp else 6.dp)
+                            .padding(horizontal = 3.dp)
+                            .size(if (selected) 8.dp else 6.dp)
                             .clip(CircleShape)
                             .background(
-                                if (i == pagerState.currentPage) Color(0xFFFF4D8D)
+                                if (selected) Color(0xFFFF4D8D)
                                 else MaterialTheme.colorScheme.surfaceVariant
                             )
                     )
@@ -229,6 +248,7 @@ private fun SectionHeader(title: String) {
     )
 }
 
+@androidx.compose.animation.ExperimentalSharedTransitionApi
 @Composable
 private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
     LazyRow(
@@ -236,12 +256,26 @@ private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(items, key = { it.id }) { anime ->
-            Column(Modifier.width(110.dp).clickable { onTitleClick(anime.id) }) {
-                Box(Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(12.dp))) {
+            Column(Modifier.width(130.dp).clickable { onTitleClick(anime.id) }) {
+                Box(Modifier.fillMaxWidth().aspectRatio(0.66f).clip(RoundedCornerShape(16.dp))) {
+                    val sharedTransitionScope = com.anipulse.app.ui.LocalSharedTransitionScope.current
+                    val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
                     AsyncImage(
-                        model = posterOf(anime.id, anime.image),
+                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(posterOf(anime.id, anime.image))
+                            .memoryCacheKey("poster_${anime.id}")
+                            .build(),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().then(
+                            if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                with(sharedTransitionScope) {
+                                    Modifier.sharedElement(
+                                        rememberSharedContentState(key = "poster_${anime.id}"),
+                                        animatedVisibilityScope = animatedVisibilityScope
+                                    )
+                                }
+                            } else Modifier
+                        ),
                         contentScale = ContentScale.Crop,
                     )
                     anime.score?.takeIf { it != "0.0" }?.let { score ->

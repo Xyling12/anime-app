@@ -17,7 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
+import com.anipulse.app.ui.common.PillChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,10 +59,10 @@ fun LibraryScreen(
                 "planned" to "В планах",
                 "completed" to "Просмотрено",
             ).forEach { (key, label) ->
-                FilterChip(
+                PillChip(
                     selected = filter == key,
                     onClick = { viewModel.setFilter(key) },
-                    label = { Text(label, maxLines = 1, softWrap = false) },
+                    label = label,
                 )
             }
         }
@@ -87,8 +87,8 @@ fun LibraryScreen(
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(0.7f)
-                                .clip(RoundedCornerShape(12.dp))
+                                .aspectRatio(0.66f)
+                                .clip(RoundedCornerShape(16.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                         ) {
                             AsyncImage(

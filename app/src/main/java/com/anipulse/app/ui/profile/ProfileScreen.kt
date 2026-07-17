@@ -17,8 +17,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.PlayCircleOutline
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -36,6 +42,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +55,8 @@ private val PulseGradient = Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color
 
 @Composable
 fun ProfileScreen(
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -135,14 +144,14 @@ fun ProfileScreen(
         // Статистика 2×2
         val hours = state.watchTimeMs / 3_600_000
         val minutes = state.watchTimeMs % 3_600_000 / 60_000
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard(Modifier.weight(1f), "${state.watchedEpisodes}", "серий просмотрено")
-            StatCard(Modifier.weight(1f), "$hours ч $minutes м", "времени в аниме")
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(Modifier.weight(1f).height(110.dp), "${state.watchedEpisodes}", "Серий просмотрено", Icons.Outlined.Visibility)
+            StatCard(Modifier.weight(1f).height(110.dp), "$hours ч $minutes м", "Времени в аниме", Icons.Outlined.Schedule)
         }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard(Modifier.weight(1f), "${state.startedTitles}", "тайтлов начато")
-            StatCard(Modifier.weight(1f), "${state.favoritesCount}", "в «Моё»")
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(Modifier.weight(1f).height(110.dp), "${state.startedTitles}", "Тайтлов начато", Icons.Outlined.PlayCircleOutline)
+            StatCard(Modifier.weight(1f).height(110.dp), "${state.favoritesCount}", "В списке «Моё»", Icons.Outlined.FavoriteBorder)
         }
 
         // Плашка подтверждения почты (без него закрыты чат/комменты/ЛС)
@@ -220,10 +229,11 @@ fun ProfileScreen(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(50))
+                    .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = Color(0xFFFF4D8D))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(PulseGradient)
                     .clickable { authDialog = "register" }
-                    .padding(vertical = 13.dp),
+                    .padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Text("Создать аккаунт", color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -276,6 +286,14 @@ fun ProfileScreen(
 
         // Настройки
         Text(
+            "Настройки",
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        SettingRow("Тёмная тема", isDarkTheme, { onThemeToggle() })
+        
+        Text(
             "Настройки плеера",
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             style = MaterialTheme.typography.titleMedium,
@@ -315,6 +333,13 @@ fun ProfileScreen(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             ) { Text("Правообладателям", style = MaterialTheme.typography.labelSmall) }
         }
+
+        Text(
+            "Версия ${com.anipulse.app.BuildConfig.VERSION_NAME}",
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         Spacer(Modifier.height(24.dp))
     }
@@ -478,11 +503,25 @@ private fun AuthDialog(
 }
 
 @Composable
-private fun StatCard(modifier: Modifier, value: String, label: String) {
-    Surface(modifier = modifier.clip(RoundedCornerShape(14.dp)), color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.padding(14.dp)) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun StatCard(modifier: Modifier, value: String, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
+    ) {
+        Box(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(end = 28.dp)) {
+                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp).align(Alignment.TopEnd)
+            )
         }
     }
 }

@@ -331,6 +331,15 @@ fun ChatScreen(
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить", tint = MaterialTheme.colorScheme.onPrimary)
                 }
             }
+            // Раньше ошибка отправки проглатывалась молча — сообщение просто «не уходило» без объяснения.
+            state.error?.let {
+                Text(
+                    it,
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         } else {
             Box(
                 Modifier.fillMaxWidth().padding(16.dp),
