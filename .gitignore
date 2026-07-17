@@ -2,6 +2,9 @@
 SECRETS.local.md
 gradle.properties
 local.properties
+keystore.properties
+*.jks
+*.keystore
 
 # Сборка и кэши
 build/

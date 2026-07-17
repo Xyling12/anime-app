@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,23 +9,47 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Подпись release-сборки: keystore.properties — локальный, не в git (см. .gitignore).
+// Если файла нет (например, у другого разработчика при сборке из публичных исходников),
+// release просто соберётся неподписанным — сборка не падает.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val hasSigningConfig = keystorePropertiesFile.exists()
+if (hasSigningConfig) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
+}
+
 android {
-    namespace = "com.animelib.app"
+    namespace = "com.anipulse.app"
     compileSdk = 35
     buildToolsVersion = "35.0.1"
 
     defaultConfig {
-        applicationId = "com.animelib.app"
+        applicationId = "com.anipulse.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (hasSigningConfig) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
