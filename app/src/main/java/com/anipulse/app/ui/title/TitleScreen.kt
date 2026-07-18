@@ -113,17 +113,7 @@ fun TitleScreen(
                                 .placeholderMemoryCacheKey("poster_prev_$animeId")
                                 .build(),
                             contentDescription = displayTitle,
-                            modifier = Modifier.fillMaxSize().then(
-                                if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                                    with(sharedTransitionScope) {
-                                        @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
-                                        Modifier.sharedElement(
-                                            rememberSharedContentState(key = "poster_$animeId"),
-                                            animatedVisibilityScope = animatedVisibilityScope
-                                        )
-                                    }
-                                } else Modifier
-                            ),
+                            modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
                         )
                         Box(

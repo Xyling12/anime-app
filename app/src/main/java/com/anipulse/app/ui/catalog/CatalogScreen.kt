@@ -281,16 +281,7 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
                     .memoryCacheKey("poster_prev_${anime.id}")
                     .build(),
                 contentDescription = anime.russian ?: anime.name,
-                modifier = Modifier.fillMaxSize().then(
-                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                        with(sharedTransitionScope) {
-                            Modifier.sharedElement(
-                                rememberSharedContentState(key = "poster_${anime.id}"),
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                    } else Modifier
-                ),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
             anime.score?.takeIf { it != "0.0" }?.let { score ->

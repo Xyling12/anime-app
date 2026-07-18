@@ -31,7 +31,7 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
                     }
                     .build()
             }
-            .crossfade(true)
+            .crossfade(false) // без анимации появления — по фидбеку владельца
             .build()
 
     override fun onCreate() {

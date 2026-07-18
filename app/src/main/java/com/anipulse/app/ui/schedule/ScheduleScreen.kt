@@ -156,17 +156,7 @@ private fun ScheduleList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> U
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(width = 60.dp, height = 80.dp)
-                                        .then(
-                                            if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                                                with(sharedTransitionScope) {
-                                                    @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
-                                                    Modifier.sharedElement(
-                                                        rememberSharedContentState(key = "poster_${e.anime.id}"),
-                                                        animatedVisibilityScope = animatedVisibilityScope
-                                                    )
-                                                }
-                                            } else Modifier
-                                        )
+                                        
                                         .clip(RoundedCornerShape(12.dp)),
                                     contentScale = ContentScale.Crop,
                                 )

@@ -267,16 +267,7 @@ private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
                             .memoryCacheKey("poster_prev_${anime.id}")
                             .build(),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize().then(
-                            if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                                with(sharedTransitionScope) {
-                                    Modifier.sharedElement(
-                                        rememberSharedContentState(key = "poster_${anime.id}"),
-                                        animatedVisibilityScope = animatedVisibilityScope
-                                    )
-                                }
-                            } else Modifier
-                        ),
+                        modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
                     anime.score?.takeIf { it != "0.0" }?.let { score ->
