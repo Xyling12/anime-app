@@ -522,7 +522,8 @@ async function handleDm(req, res) {
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     const after = Number((req.url.match(/[?&]after=(\d+)/) || [])[1] || 0);
     const key = dmKey(user.id, other.id);
-    const msgs = (all.threads[key] || []).filter(m => m.id > after).slice(-100);
+    const msgs = (all.threads[key] || []).filter(m => m.id > after).slice(-100)
+      .map(m => ({ ...m, fromAvatar: avatarOf(m.from && m.from.toLowerCase() === user.nick.toLowerCase() ? user : other) }));
     const lr = all.lastRead[key] || {};
     const maxId = (all.threads[key] || []).reduce((a, m) => Math.max(a, m.id), 0);
     if ((lr[user.id] || 0) < maxId) { lr[user.id] = maxId; all.lastRead[key] = lr; saveJson(DM_FILE, all); }
@@ -773,7 +774,14 @@ async function handleChat(req, res) {
   if (req.method === 'GET') {
     const after = Number((req.url.match(/[?&]after=(\d+)/) || [])[1] || 0);
     const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
-    const out = chat.messages.filter(m => m.id > after).slice(-100).map(({ userId, ...rest }) => rest);
+    // Аватар отдаём АКТУАЛЬНЫЙ по нику, а не снапшот на момент отправки —
+    // иначе после смены аватарки старые сообщения показывали старую.
+    const avByNick = {};
+    for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
+    const out = chat.messages.filter(m => m.id > after).slice(-100).map(({ userId, ...rest }) => ({
+      ...rest,
+      avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
+    }));
     return jsonRes(res, 200, out);
   }
   if (req.method === 'POST') {
@@ -806,7 +814,12 @@ async function handleComments(req, res) {
     const all = loadJson(COMMENTS_FILE, {});
     // userId — внутреннее поле (нужно только для admin delete-comment по id, не по userId);
     // публично не отдаём, чтобы не облегчать перечисление аккаунтов по нику↔id.
-    const out = (all[animeId] || []).slice(-100).map(({ userId, ...rest }) => rest);
+    const avByNick = {};
+    for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
+    const out = (all[animeId] || []).slice(-100).map(({ userId, ...rest }) => ({
+      ...rest,
+      avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
+    }));
     return jsonRes(res, 200, out);
   }
   if (req.method === 'POST') {
@@ -945,7 +958,22 @@ function handleAvatarImg(req, res) {
 const OAUTH_FILE = '/opt/anipulse/oauth.json';
 function oauthCfg() { try { return JSON.parse(fs.readFileSync(OAUTH_FILE, 'utf8')); } catch (e) { return {}; } }
 const OAUTH_REDIRECT_BASE = 'https://5-42-99-195.sslip.io/alapi/auth';
-const pkceStore = new Map(); // state -> {verifier, exp}
+// OAuth-состояния (PKCE/nonce) хранятся в ФАЙЛЕ, а не в памяти: рестарт сервера
+// (деплой) раньше стирал их — если вкладка авторизации VK была открыта до рестарта,
+// колбэк приходил с валидным кодом, но неизвестным state («Ссылка устарела»).
+const OAUTH_STATE_FILE = '/opt/anipulse/oauth-state.json';
+function oauthStateAll() { return loadJson(OAUTH_STATE_FILE, { pkce: {}, yandex: {} }); }
+function oauthStateSweepSave(all) {
+  const now = Date.now();
+  for (const k of Object.keys(all.pkce)) if (all.pkce[k].exp < now) delete all.pkce[k];
+  for (const k of Object.keys(all.yandex)) if (all.yandex[k].exp < now) delete all.yandex[k];
+  saveJson(OAUTH_STATE_FILE, all);
+}
+const pkceStore = {
+  set(k, v) { const a = oauthStateAll(); a.pkce[k] = v; oauthStateSweepSave(a); },
+  get(k) { const v = oauthStateAll().pkce[k]; return v && v.exp > Date.now() ? v : undefined; },
+  delete(k) { const a = oauthStateAll(); delete a.pkce[k]; oauthStateSweepSave(a); },
+};
 function uniqueNick(db, base) {
   let nick = String(base || 'user').replace(/[^\wа-яА-ЯёЁ .-]/g, '').trim().slice(0, 20) || 'user';
   let candidate = nick, i = 1;
@@ -980,7 +1008,11 @@ function socialLogin(provider, extId, displayName, res, state) {
 }
 // CSRF-защита колбэка Яндекса: клиентский state не проверялся на возврате (login CSRF) —
 // заводим свой серверный nonce и связываем его с исходным (link-)state, как у VK.
-const yandexStateStore = new Map(); // nonce -> {linkState, exp}
+const yandexStateStore = {
+  set(k, v) { const a = oauthStateAll(); a.yandex[k] = v; oauthStateSweepSave(a); },
+  get(k) { const v = oauthStateAll().yandex[k]; return v && v.exp > Date.now() ? v : undefined; },
+  delete(k) { const a = oauthStateAll(); delete a.yandex[k]; oauthStateSweepSave(a); },
+};
 async function handleOAuthYandex(req, res, isCallback) {
   try {
     const cfg = (oauthCfg().yandex) || {};
@@ -989,7 +1021,6 @@ async function handleOAuthYandex(req, res, isCallback) {
     if (!isCallback) {
       const nonce = crypto.randomBytes(16).toString('hex');
       yandexStateStore.set(nonce, { linkState: q.get('state') || '', exp: Date.now() + 10 * 60 * 1000 });
-      for (const [k, v] of yandexStateStore) if (v.exp < Date.now()) yandexStateStore.delete(k);
       const url = 'https://oauth.yandex.ru/authorize?response_type=code&client_id=' + cfg.client_id +
         '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/yandex/callback') +
         '&state=' + encodeURIComponent(nonce);
@@ -1020,7 +1051,6 @@ async function handleOAuthVk(req, res, isCallback) {
       const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
       const state = crypto.randomBytes(8).toString('hex') + '_' + (q.get('state') || '');
       pkceStore.set(state, { verifier, exp: Date.now() + 10 * 60 * 1000 });
-      for (const [k, v] of pkceStore) if (v.exp < Date.now()) pkceStore.delete(k);
       const url = 'https://id.vk.com/authorize?response_type=code&client_id=' + cfg.client_id +
         '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/vk/callback') +
         '&state=' + encodeURIComponent(state) +
