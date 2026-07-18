@@ -137,6 +137,7 @@ fun PlayerScreen(
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) // кастомные thumb/track у Slider
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class) // DefaultLoadControl/PlayerView
 @Composable
 private fun NativePlayer(
     state: PlayerUiState,
