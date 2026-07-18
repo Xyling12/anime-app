@@ -14,11 +14,11 @@ class AnimeLibApp : Application() {
     override fun onCreate() {
         super.onCreate()
         NotifyWorker.ensureChannels(this)
-        // Пуши без Google-сервисов: периодический опрос шлюза (минимум WorkManager — 15 мин; ставим 30).
+        // Пуши без Google-сервисов: периодический опрос шлюза (15 мин — минимум WorkManager).
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "anipulse-notify",
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<NotifyWorker>(30, TimeUnit.MINUTES).build(),
+            ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<NotifyWorker>(15, TimeUnit.MINUTES).build(),
         )
         // Разовая проверка сразу при запуске приложения (пуши догоняют мгновенно).
         WorkManager.getInstance(this).enqueue(

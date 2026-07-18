@@ -68,7 +68,7 @@ class RootMenuViewModel @Inject constructor(
                     _dmUnread.value = dm > 0
                     _notifUnread.value = notif > 0
                 } ?: run { _dmUnread.value = false; _notifUnread.value = false }
-                delay(30_000)
+                delay(10_000) // точка у колокольчика/чата не позже 10с (фидбек: 30с — долго)
             }
         }
     }
