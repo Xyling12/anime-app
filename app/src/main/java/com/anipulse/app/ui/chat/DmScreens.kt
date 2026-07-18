@@ -134,7 +134,18 @@ fun DmListScreen(
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(t.withAvatar, 42.dp, nick = t.withNick)
+                        Box {
+                            Avatar(t.withAvatar, 42.dp, nick = t.withNick)
+                            if (t.withOnline) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .size(11.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(androidx.compose.ui.graphics.Color(0xFF2ECC71)),
+                                )
+                            }
+                        }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(t.withNick, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)

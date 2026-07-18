@@ -110,6 +110,7 @@ data class AvatarUploadResponse(val ok: Boolean = false, val avatar: Int = 0, va
 data class DmThread(
     val withNick: String = "",
     val withAvatar: Int = 0,
+    val withOnline: Boolean = false,
     val lastText: String = "",
     val lastAt: Long = 0,
     val unread: Int = 0,

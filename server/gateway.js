@@ -508,6 +508,7 @@ async function handleDm(req, res) {
       out.push({
         withNick: other ? other.nick : '?',
         withAvatar: other ? avatarOf(other) : 0,
+        withOnline: other ? isOnline(other) : false,
         lastText: last.text, lastAt: last.at,
         unread: msgs.filter(m => m.id > lastRead && m.from !== user.nick).length,
       });
