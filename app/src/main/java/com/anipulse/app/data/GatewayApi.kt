@@ -105,6 +105,10 @@ data class AvatarUploadRequest(val image: String)
 @Serializable
 data class AvatarUploadResponse(val ok: Boolean = false, val avatar: Int = 0, val avatarRev: Int = 0, val error: String? = null)
 
+/** Манифест обновления приложения (OTA без стора). */
+@Serializable
+data class AppVersion(val versionCode: Int = 0, val versionName: String = "", val url: String = "")
+
 /** Диалог ЛС в списке чатов. */
 @Serializable
 data class DmThread(
@@ -201,6 +205,9 @@ data class FriendActionResponse(val state: String = "", val error: String? = nul
 
 /** Собственные эндпоинты шлюза (не прокси). */
 interface GatewayApi {
+    @GET("app-version")
+    suspend fun appVersion(): AppVersion
+
     @GET("anilibria-updates")
     suspend fun anilibriaUpdates(): List<AnilibriaUpdate>
 

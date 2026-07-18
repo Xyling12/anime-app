@@ -41,7 +41,16 @@ class RootMenuViewModel @Inject constructor(
         isDarkTheme.value = newTheme
     }
 
+    /** Доступное обновление (versionCode на сервере больше нашего) или null. */
+    val update = kotlinx.coroutines.flow.MutableStateFlow<com.anipulse.app.data.AppVersion?>(null)
+
     init {
+        viewModelScope.launch {
+            runCatching { gateway.appVersion() }.onSuccess { v ->
+                if (v.versionCode > com.anipulse.app.BuildConfig.VERSION_CODE && v.url.isNotBlank()) update.value = v
+            }
+        }
+
         // Актуализируем ник/аватар с сервера (prefs может не знать ник после OAuth-входа)
         viewModelScope.launch {
             settings.authToken?.let { t ->

@@ -146,17 +146,48 @@ async function handleKodik(link, episode, res) {
   } catch (e) { res.writeHead(502); res.end('kodik error: ' + e.message); }
 }
 
-async function handlePoster(id, res) {
+// Jikan лимитирует ~3 запроса/сек: экран «Эфир» стреляет 20 постерами разом,
+// без очереди большинство получало 429 → пустые карточки. Очередь с зазором 400мс
+// + короткий негативный кэш (не долбим Jikan по тайтлам без постера).
+let jikanChain = Promise.resolve();
+function handlePoster(id, res) {
   const hit = posterCache.get(id);
-  if (hit && hit.exp > Date.now()) { res.writeHead(302, { Location: hit.path }); return res.end(); }
+  if (hit && hit.exp > Date.now()) {
+    if (!hit.path) { res.writeHead(404); return res.end('no poster'); }
+    res.writeHead(302, { Location: hit.path }); return res.end();
+  }
+  jikanChain = jikanChain.then(async () => {
+    try {
+      const h2 = posterCache.get(id); // мог появиться, пока ждали очередь
+      if (h2 && h2.exp > Date.now()) {
+        if (!h2.path) { res.writeHead(404); return res.end('no poster'); }
+        res.writeHead(302, { Location: h2.path }); return res.end();
+      }
+      const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`);
+      const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url;
+      if (!img) {
+        posterCache.set(id, { path: null, exp: Date.now() + 10 * 60 * 1000 });
+        res.writeHead(404); return res.end('no poster');
+      }
+      const path = '/alapi/malcdn' + new URL(img).pathname;
+      posterCache.set(id, { path, exp: Date.now() + POSTER_TTL_MS });
+      res.writeHead(302, { Location: path }); res.end();
+    } catch (e) { try { res.writeHead(502); res.end('poster error: ' + e.message); } catch (_) {} }
+    await new Promise(r => setTimeout(r, 400)); // зазор под лимит Jikan
+  });
+}
+
+// OTA-обновления: манифест версии + сам APK (кладётся в /opt/anipulse при релизе).
+function handleAppVersion(res) {
+  try { return jsonRes(res, 200, JSON.parse(fs.readFileSync('/opt/anipulse/app-version.json', 'utf8'))); }
+  catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
+}
+function handleApkDownload(res) {
   try {
-    const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`);
-    const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url;
-    if (!img) { res.writeHead(404); return res.end('no poster'); }
-    const path = '/alapi/malcdn' + new URL(img).pathname;
-    posterCache.set(id, { path, exp: Date.now() + POSTER_TTL_MS });
-    res.writeHead(302, { Location: path }); res.end();
-  } catch (e) { res.writeHead(502); res.end('poster error: ' + e.message); }
+    const b = fs.readFileSync('/opt/anipulse/AniPulse-latest.apk');
+    res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="AniPulse.apk"', 'Content-Length': b.length });
+    res.end(b);
+  } catch (e) { res.writeHead(404); res.end('no apk'); }
 }
 
 
@@ -1214,6 +1245,8 @@ async function route(req, res) {
   if (req.url.startsWith('/alapi/auth/vk')) return handleOAuthVk(req, res, false);
   const authM = req.url.match(/^\/alapi\/auth\/([a-z]+)/);
   if (authM) return handleAuth(req, res, authM[1]);
+  if (req.url.startsWith('/alapi/app-version')) return handleAppVersion(res);
+  if (req.url.startsWith('/alapi/apk')) return handleApkDownload(res);
   if (req.url.startsWith('/alapi/anilibria-updates')) return handleAnilibriaUpdates(res);
   const poster = req.url.match(/^\/alapi\/poster\/(\d+)/);
   if (poster) return handlePoster(poster[1], res);
