@@ -1050,7 +1050,9 @@ async function handleOAuthVk(req, res, isCallback) {
       const verifier = crypto.randomBytes(32).toString('base64url');
       const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
       const state = crypto.randomBytes(8).toString('hex') + '_' + (q.get('state') || '');
-      pkceStore.set(state, { verifier, exp: Date.now() + 10 * 60 * 1000 });
+      // Ключ — только nonce (до '_'): VK может исказить хвост state (токен привязки),
+      // поэтому linkState храним у себя и НЕ доверяем эхо от VK.
+      pkceStore.set(state.split('_')[0], { verifier, link: q.get('state') || '', exp: Date.now() + 10 * 60 * 1000 });
       const url = 'https://id.vk.com/authorize?response_type=code&client_id=' + cfg.client_id +
         '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/vk/callback') +
         '&state=' + encodeURIComponent(state) +
@@ -1058,11 +1060,13 @@ async function handleOAuthVk(req, res, isCallback) {
       res.writeHead(302, { Location: url }); return res.end();
     }
     const code = q.get('code'), state = q.get('state') || '', deviceId = q.get('device_id') || '';
-    const saved = pkceStore.get(state);
+    const saved = pkceStore.get(state.split('_')[0]);
     if (!code || !saved) {
       // Диагностика в journal (без секретов): что именно пришло от VK.
       console.error('vk callback rejected:', JSON.stringify({
         hasCode: !!code, hasState: !!state, knownState: !!saved,
+        gotState: state.slice(0, 16),
+        stored: Object.keys(oauthStateAll().pkce).map(k => k.slice(0, 16)),
         vkError: q.get('error'), vkErrorDesc: q.get('error_description'),
       }));
       const human = q.get('error')
@@ -1073,7 +1077,7 @@ async function handleOAuthVk(req, res, isCallback) {
       res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end(human);
     }
-    pkceStore.delete(state);
+    pkceStore.delete(state.split('_')[0]);
     const body = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
       '&code_verifier=' + saved.verifier + '&client_id=' + cfg.client_id +
       '&device_id=' + encodeURIComponent(deviceId) + '&state=' + encodeURIComponent(state) +
@@ -1086,7 +1090,7 @@ async function handleOAuthVk(req, res, isCallback) {
     })).body.toString());
     const u = infoResp.user || {};
     if (!u.user_id) { res.writeHead(502); return res.end('vk info error'); }
-    const linkState = state.includes('_') ? state.slice(state.indexOf('_') + 1) : '';
+    const linkState = saved.link || ''; // из своего хранилища, не из эха VK
     socialLogin('vk', u.user_id, [u.first_name, u.last_name].filter(Boolean).join(' '), res, linkState);
   } catch (e) { res.writeHead(502); res.end('oauth error: ' + e.message); }
 }
