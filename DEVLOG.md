@@ -387,3 +387,8 @@
 - Сборка **AniPulse-0.2.4.apk** (крэш-репортер включён).
 
 - **🌐 ДОМЕН КУПЛЕН: anipulsetv.ru** (Timeweb, ждёт регистрации). ⚠️ Автопривязался к ЧУЖОМУ сервису grand-transfer-vps (185.171.82.112) — владельцу нужно перепривязать A-запись на 5.42.99.195 и ВКЛЮЧИТЬ АВТОПРОДЛЕНИЕ (выключено — риск массовой смерти APK через год). План миграции после привязки: (1) проверить DNS; (2) блок в Caddy (сертификат авто, TakerTap не трогать); (3) Api.kt GATEWAY → https://anipulsetv.ru/alapi/ + OAUTH_REDIRECT_BASE на сервере; (4) пересборка APK; (5) sslip.io оставить параллельно для старых установок; (6) владельцу — добавить новые redirect_uri в кабинетах VK ID (54670797) и Яндекс OAuth.
+
+## 2026-07-18 (ночь — МИГРАЦИЯ НА СВОЙ ДОМЕН anipulsetv.ru)
+
+- DNS поднялся (5.42.99.195, автопродление включено владельцем, оплачен до 07.2027). Caddy: аддитивный блок anipulsetv.ru (license→8080 как у sslip, остальное→8090), сертификат выпустился автоматически, sslip.io-блок ОСТАВЛЕН — старые установки работают. gateway.js: OAUTH_REDIRECT_BASE → https://anipulsetv.ru/alapi/auth (проверено: authorize-URL отдаёт новый redirect_uri). Api.kt GATEWAY → https://anipulsetv.ru/alapi/. Версия 0.3.0 (versionCode 3), AniPulse-0.3.0.apk на столе. Смена IP сервера теперь = только A-запись, APK живут.
+- ⏳ ВЛАДЕЛЬЦУ: добавить в кабинетах redirect_uri — VK ID (54670797): https://anipulsetv.ru/alapi/auth/vk/callback; Яндекс OAuth: https://anipulsetv.ru/alapi/auth/yandex/callback (старые sslip-адреса можно оставить рядом).

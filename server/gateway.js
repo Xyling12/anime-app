@@ -958,7 +958,7 @@ function handleAvatarImg(req, res) {
 // ===== OAuth: Яндекс (ключи в /opt/anipulse/oauth.json, chmod 600) + VK ID (PKCE, без секрета) =====
 const OAUTH_FILE = '/opt/anipulse/oauth.json';
 function oauthCfg() { try { return JSON.parse(fs.readFileSync(OAUTH_FILE, 'utf8')); } catch (e) { return {}; } }
-const OAUTH_REDIRECT_BASE = 'https://5-42-99-195.sslip.io/alapi/auth';
+const OAUTH_REDIRECT_BASE = 'https://anipulsetv.ru/alapi/auth';
 // OAuth-состояния (PKCE/nonce) хранятся в ФАЙЛЕ, а не в памяти: рестарт сервера
 // (деплой) раньше стирал их — если вкладка авторизации VK была открыта до рестарта,
 // колбэк приходил с валидным кодом, но неизвестным state («Ссылка устарела»).

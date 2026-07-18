@@ -7,7 +7,7 @@ package com.anipulse.app.data
  */
 object Api {
     // Бесплатный тестовый домен sslip.io. Позже заменим на anipulse.duckdns.org / свой.
-    const val GATEWAY = "https://5-42-99-195.sslip.io/alapi/"
+    const val GATEWAY = "https://anipulsetv.ru/alapi/"
 
     const val SHIKIMORI = GATEWAY + "shikimori/"
     const val ANILIBRIA = GATEWAY + "anilibria/"
