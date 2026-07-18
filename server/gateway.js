@@ -149,6 +149,18 @@ async function handleKodik(link, episode, res) {
 // Jikan лимитирует ~3 запроса/сек: экран «Эфир» стреляет 20 постерами разом,
 // без очереди большинство получало 429 → пустые карточки. Очередь с зазором 400мс
 // + короткий негативный кэш (не долбим Jikan по тайтлам без постера).
+function anilistCover(id) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ query: 'query($m:Int){Media(idMal:$m,type:ANIME){coverImage{large}}}', variables: { m: Number(id) } });
+    const req = https.request('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': UA, 'Content-Length': Buffer.byteLength(body) } }, (r) => {
+      const ch = []; r.on('data', d => ch.push(d));
+      r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(ch).toString()).data.Media.coverImage.large || null); } catch (e) { resolve(null); } });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
+    req.end(body);
+  });
+}
 let jikanChain = Promise.resolve();
 function handlePoster(id, res) {
   const hit = posterCache.get(id);
@@ -163,13 +175,21 @@ function handlePoster(id, res) {
         if (!h2.path) { res.writeHead(404); return res.end('no poster'); }
         res.writeHead(302, { Location: h2.path }); return res.end();
       }
-      const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`);
-      const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url;
-      if (!img) {
+      let path = null;
+      try {
+        const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`);
+        const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url || null;
+        if (img) path = '/alapi/malcdn' + new URL(img).pathname;
+      } catch (e) {}
+      // Jikan/MAL нестабилен (массовые 504) — второй источник: AniList по тому же MAL id.
+      if (!path) {
+        const al = await anilistCover(id);
+        if (al) path = '/alapi/anilistcdn' + new URL(al).pathname;
+      }
+      if (!path) {
         posterCache.set(id, { path: null, exp: Date.now() + 10 * 60 * 1000 });
         res.writeHead(404); return res.end('no poster');
       }
-      const path = '/alapi/malcdn' + new URL(img).pathname;
       posterCache.set(id, { path, exp: Date.now() + POSTER_TTL_MS });
       res.writeHead(302, { Location: path }); res.end();
     } catch (e) { try { res.writeHead(502); res.end('poster error: ' + e.message); } catch (_) {} }
