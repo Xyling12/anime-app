@@ -36,6 +36,9 @@ data class ProfileState(
     val bugReportError: String? = null,
     val bugReportSent: Boolean = false,
     val avatarId: Int = 0,
+    /** Версия кастомной аватарки — для сброса кэша картинки после загрузки новой. */
+    val avatarRev: Int = 0,
+    val avatarUploadError: String? = null,
     /** false — почта не подтверждена, показываем плашку с кодом. */
     val emailVerified: Boolean = true,
     val verifyMessage: String? = null,
@@ -209,6 +212,31 @@ class ProfileViewModel @Inject constructor(
             viewModelScope.launch {
                 runCatching { gateway.setAvatar("Bearer $token", com.anipulse.app.data.AvatarRequest(id)) }
             }
+        }
+    }
+
+    /** Загрузка своей аватарки: bytes — уже сжатый JPEG (экран жмёт до 256px). */
+    fun uploadAvatar(bytes: ByteArray) {
+        val token = settings.authToken ?: run {
+            _state.update { it.copy(avatarUploadError = "Войдите в аккаунт") }; return
+        }
+        _state.update { it.copy(avatarUploadError = null) }
+        viewModelScope.launch {
+            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            runCatching { gateway.uploadAvatar("Bearer $token", com.anipulse.app.data.AvatarUploadRequest(b64)) }
+                .onSuccess { r ->
+                    if (r.ok) {
+                        settings.avatarId = -1
+                        _state.update { it.copy(avatarId = -1, avatarRev = r.avatarRev) }
+                    } else {
+                        _state.update { it.copy(avatarUploadError = r.error ?: "Не удалось загрузить") }
+                    }
+                }
+                .onFailure { e ->
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(avatarUploadError = msg ?: "Не удалось загрузить — проверьте соединение") }
+                }
         }
     }
 

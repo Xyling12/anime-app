@@ -98,6 +98,13 @@ data class RatingRequest(val animeId: Long, val score: Int)
 @Serializable
 data class AvatarRequest(val avatar: Int)
 
+/** Загрузка своей аватарки: image = base64 JPEG/PNG/WebP (клиент жмёт до 256px). */
+@Serializable
+data class AvatarUploadRequest(val image: String)
+
+@Serializable
+data class AvatarUploadResponse(val ok: Boolean = false, val avatar: Int = 0, val avatarRev: Int = 0, val error: String? = null)
+
 /** Диалог ЛС в списке чатов. */
 @Serializable
 data class DmThread(
@@ -329,4 +336,10 @@ interface GatewayApi {
         @retrofit2.http.Header("Authorization") bearer: String,
         @retrofit2.http.Body body: AvatarRequest,
     ): AuthResponse
+
+    @retrofit2.http.POST("avatar-upload")
+    suspend fun uploadAvatar(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: AvatarUploadRequest,
+    ): AvatarUploadResponse
 }

@@ -74,3 +74,10 @@ fun ShikiImage?.previewUrl(): String? =
  */
 fun posterOf(id: Long, image: ShikiImage?): String =
     image.posterUrl() ?: (com.anipulse.app.data.Api.GATEWAY + "poster/$id")
+
+/**
+ * Лёгкий постер для сеток/лент: preview Shikimori в разы меньше оригинала,
+ * на медленной сети грузится заметно быстрее. Для крупных экранов — posterOf.
+ */
+fun posterPreviewOf(id: Long, image: ShikiImage?): String =
+    image.previewUrl() ?: (com.anipulse.app.data.Api.GATEWAY + "poster/$id")

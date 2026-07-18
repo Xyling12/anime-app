@@ -1,5 +1,6 @@
 package com.anipulse.app.ui.chat
 
+import com.anipulse.app.ui.common.topSafePadding
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -99,7 +99,7 @@ fun ChatScreen(
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+    Column(Modifier.fillMaxSize().topSafePadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -118,10 +118,16 @@ fun ChatScreen(
         ) {
             if (state.messages.isEmpty()) {
                 item {
-                    Text(
-                        "Пока тихо… Напиши первым!",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // По центру видимой области, а не под шапкой (фидбек владельца)
+                    Box(
+                        Modifier.fillParentMaxHeight(0.8f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Пока тихо… Напиши первым!",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             items(state.messages, key = { it.id }) { m ->
@@ -132,7 +138,7 @@ fun ChatScreen(
                 ) {
                     if (!mine) {
                         // Тап по аватару — карточка пользователя
-                        Box(Modifier.clickable { cardNick = m.nick }) { Avatar(m.avatar, 30.dp) }
+                        Box(Modifier.clickable { cardNick = m.nick }) { Avatar(m.avatar, 30.dp, nick = m.nick) }
                         Spacer(Modifier.width(8.dp))
                     }
                     Box {

@@ -1,5 +1,6 @@
 package com.anipulse.app.ui.chat
 
+import com.anipulse.app.ui.common.topSafePadding
 import android.content.Context
 import com.anipulse.app.notify.SoundPlayer
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -104,7 +104,7 @@ fun DmListScreen(
     viewModel: DmListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().topSafePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -134,7 +134,7 @@ fun DmListScreen(
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(t.withAvatar, 42.dp)
+                        Avatar(t.withAvatar, 42.dp, nick = t.withNick)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(t.withNick, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -252,7 +252,7 @@ fun DmChatScreen(
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+    Column(Modifier.fillMaxSize().topSafePadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,

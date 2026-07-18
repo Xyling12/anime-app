@@ -545,7 +545,7 @@ private fun NativePlayer(
                     items(state.comments.size) { i ->
                         val cm = state.comments[i]
                         Row {
-                            com.anipulse.app.ui.common.Avatar(cm.avatar, 26.dp)
+                            com.anipulse.app.ui.common.Avatar(cm.avatar, 26.dp, nick = cm.nick)
                             Column(Modifier.padding(start = 8.dp)) {
                                 Text(
                                     cm.nick,

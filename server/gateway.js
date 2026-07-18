@@ -19,7 +19,17 @@ const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Geck
 const cache = new Map();
 const posterCache = new Map();
 const TTL_MS = 60 * 1000;
+const IMG_TTL_MS = 30 * 60 * 1000; // картинки в серверном кэше держим дольше текста
 const POSTER_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Периодическая чистка кэшей: записи раньше только помечались просроченными,
+// но не удалялись из Map — память росла к MemoryMax=150M юнита, под давлением
+// часть запросов картинок начинала фейлиться (репорт «не все постеры грузятся»).
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of cache) { if (v.exp <= now) cache.delete(k); }
+  for (const [k, v] of posterCache) { if (v.exp <= now) posterCache.delete(k); }
+}, 5 * 60 * 1000).unref();
 
 function fetchFollow(urlStr, { cookies = {}, redirects = 0, method = 'GET', body = null, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
@@ -240,10 +250,10 @@ function verifyToken(token) {
   return userId;
 }
 const MAX_BODY = 64 * 1024; // защита от гигантских тел
-function readBody(req) {
+function readBody(req, maxBytes = MAX_BODY) {
   return new Promise((resolve) => {
     const ch = []; let size = 0;
-    req.on('data', d => { size += d.length; if (size > MAX_BODY) { req.destroy(); resolve(null); return; } ch.push(d); });
+    req.on('data', d => { size += d.length; if (size > maxBytes) { req.destroy(); resolve(null); return; } ch.push(d); });
     req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(ch).toString())); } catch (e) { resolve(null); } });
   });
 }
@@ -405,7 +415,7 @@ async function handleAuth(req, res, path) {
     if (!userId) return jsonRes(res, 401, { error: 'Не авторизован' });
     const user = loadUsers().users.find(u => u.id === userId);
     if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
-    return jsonRes(res, 200, { nick: user.nick, email: user.email, avatar: user.avatar || 0, linked: Object.keys(user.linked || {}), emailVerified: user.emailVerified !== false, admin: !!user.admin });
+    return jsonRes(res, 200, { nick: user.nick, email: user.email, avatar: avatarOf(user), linked: Object.keys(user.linked || {}), emailVerified: user.emailVerified !== false, admin: !!user.admin });
   }
   jsonRes(res, 404, { error: 'not found' });
 }
@@ -497,7 +507,7 @@ async function handleDm(req, res) {
       const lastRead = (all.lastRead[key] || {})[user.id] || 0;
       out.push({
         withNick: other ? other.nick : '?',
-        withAvatar: other ? (other.avatar || 0) : 0,
+        withAvatar: other ? avatarOf(other) : 0,
         lastText: last.text, lastAt: last.at,
         unread: msgs.filter(m => m.id > lastRead && m.from !== user.nick).length,
       });
@@ -532,7 +542,7 @@ async function handleDm(req, res) {
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Нельзя писать себе' });
     const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const key = dmKey(user.id, other.id);
-    const msg = { id: ++all.seq, from: user.nick, fromAvatar: user.avatar || 0, to: other.nick, text, at: Date.now() };
+    const msg = { id: ++all.seq, from: user.nick, fromAvatar: avatarOf(user), to: other.nick, text, at: Date.now() };
     const list = all.threads[key] || [];
     list.push(msg);
     all.threads[key] = list.slice(-500);
@@ -570,7 +580,7 @@ function friendsOf(db, id) { return db[id] || (db[id] = { friends: [], incoming:
 
 function publicUser(u) {
   return {
-    nick: u.nick, avatar: u.avatar || 0, bio: u.bio || '',
+    nick: u.nick, avatar: avatarOf(u), bio: u.bio || '',
     createdAt: u.createdAt || null, lastSeen: u.lastSeen || null, online: isOnline(u),
     favoriteGenre: u.favoriteGenre || null, stats: u.stats || null,
   };
@@ -778,7 +788,7 @@ async function handleChat(req, res) {
     text = filterProfanity(text);
     if (tooMany(userHits, 'chat:' + user.id, 5, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро — до 5 сообщений в минуту' });
     const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
-    const msg = { id: ++chat.seq, userId: user.id, nick: user.nick, avatar: user.avatar || 0, text, at: Date.now() };
+    const msg = { id: ++chat.seq, userId: user.id, nick: user.nick, avatar: avatarOf(user), text, at: Date.now() };
     const rid = Number(b && b.replyTo) || 0;
     if (rid) { const orig = chat.messages.find(m => m.id === rid); if (orig) msg.replyTo = { id: orig.id, nick: orig.nick, text: String(orig.text).slice(0, 80) }; }
     chat.messages.push(msg);
@@ -813,7 +823,7 @@ async function handleComments(req, res) {
     if (tooMany(userHits, 'cm:' + user.id, 3, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро — до 3 комментариев в минуту' });
     const all = loadJson(COMMENTS_FILE, {});
     const list = all[id] || [];
-    const cm = { id: Date.now() + Math.floor(Math.random() * 1000), userId: user.id, nick: user.nick, avatar: user.avatar || 0, text, at: Date.now() };
+    const cm = { id: Date.now() + Math.floor(Math.random() * 1000), userId: user.id, nick: user.nick, avatar: avatarOf(user), text, at: Date.now() };
     if ((b && b.spoiler) || looksSpoiler(text)) cm.spoiler = true;
     list.push(cm);
     all[id] = list.slice(-300);
@@ -877,8 +887,57 @@ async function handleAvatar(req, res) {
   if (!(avatar >= 0 && avatar <= 11)) return jsonRes(res, 400, { error: 'avatar 0-11' });
   const db = loadUsers();
   const u = db.users.find(x => x.id === user.id);
-  u.avatar = avatar; saveUsers(db);
+  if (!u) return jsonRes(res, 401, { error: 'Не авторизован' });
+  u.avatar = avatar;
+  u.customAvatar = false; // выбор пресета отключает кастомную аватарку
+  saveUsers(db);
   return jsonRes(res, 200, { avatar });
+}
+
+// ===== Кастомные аватарки: загрузка своего изображения =====
+const AVATARS_DIR = '/opt/anipulse/avatars';
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { mode: 0o700 });
+const AVATAR_MAX_B64 = 400 * 1024; // ~300КБ картинки; клиент жмёт до 256x256 JPEG (~20-40КБ)
+
+/** Аватар пользователя для публичных ответов: -1 = кастомный (клиент грузит /alapi/avatar-img). */
+function avatarOf(u) { return u.customAvatar ? -1 : (u.avatar || 0); }
+
+async function handleAvatarUpload(req, res) {
+  const user = authUser(req);
+  if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
+  if (user.emailVerified === false) return jsonRes(res, 403, { error: 'Подтвердите почту: Профиль → код из письма' });
+  if (tooMany(userHits, 'av:' + user.id, 5, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро' });
+  const b = await readBody(req, AVATAR_MAX_B64 + 4096);
+  const b64 = b && typeof b.image === 'string' ? b.image : null;
+  if (!b64 || b64.length > AVATAR_MAX_B64) return jsonRes(res, 400, { error: 'Картинка не больше 300КБ' });
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); } catch (e) { return jsonRes(res, 400, { error: 'Битые данные' }); }
+  // Только реальные картинки: сверяем магические байты (JPEG/PNG/WebP), никакого HTML/скриптов.
+  const isJpeg = buf.length > 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+  const isPng = buf.length > 8 && buf.readUInt32BE(0) === 0x89504E47;
+  const isWebp = buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
+  if (!isJpeg && !isPng && !isWebp) return jsonRes(res, 400, { error: 'Поддерживаются JPEG/PNG/WebP' });
+  // Имя файла — только числовой id пользователя, никакого пользовательского ввода в пути.
+  fs.writeFileSync(`${AVATARS_DIR}/${Number(user.id)}.img`, buf, { mode: 0o600 });
+  const db = loadUsers();
+  const u = db.users.find(x => x.id === user.id);
+  if (!u) return jsonRes(res, 401, { error: 'Не авторизован' });
+  u.customAvatar = true;
+  u.avatarRev = (u.avatarRev || 0) + 1; // для сброса клиентского кэша картинки
+  saveUsers(db);
+  return jsonRes(res, 200, { ok: true, avatar: -1, avatarRev: u.avatarRev });
+}
+
+const AVATAR_MIME = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+function handleAvatarImg(req, res) {
+  const nick = decodeURIComponent(String((req.url.match(/[?&]nick=([^&]+)/) || [])[1] || ''));
+  const u = loadUsers().users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
+  if (!u || !u.customAvatar) { res.writeHead(404); return res.end('no avatar'); }
+  let buf;
+  try { buf = fs.readFileSync(`${AVATARS_DIR}/${Number(u.id)}.img`); } catch (e) { res.writeHead(404); return res.end('no avatar'); }
+  const type = buf[0] === 0xFF ? AVATAR_MIME.jpeg : buf[0] === 0x89 ? AVATAR_MIME.png : AVATAR_MIME.webp;
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' });
+  res.end(buf);
 }
 
 
@@ -1111,6 +1170,8 @@ async function route(req, res) {
   if (req.url.startsWith('/alapi/chat')) return handleChat(req, res);
   if (req.url.startsWith('/alapi/comments')) return handleComments(req, res);
   if (req.url.startsWith('/alapi/rating')) return handleRating(req, res);
+  if (req.url.startsWith('/alapi/avatar-upload')) return handleAvatarUpload(req, res);
+  if (req.url.startsWith('/alapi/avatar-img')) return handleAvatarImg(req, res);
   if (req.url.startsWith('/alapi/avatar')) return handleAvatar(req, res);
   if (req.url.startsWith('/alapi/auth/yandex/callback')) return handleOAuthYandex(req, res, true);
   if (req.url.startsWith('/alapi/auth/yandex')) return handleOAuthYandex(req, res, false);
@@ -1127,12 +1188,20 @@ async function route(req, res) {
   const base = UPSTREAMS[m[1]];
   if (!base) { res.writeHead(404); return res.end('unknown source'); }
   const target = base + '/' + m[2];
+  // Постеры не меняются по URL — неделя клиентского кэша (дисковый кэш Coil),
+  // повторные заходы в каталог больше не тянут картинки по сети вообще.
+  const imgHeaders = (ct) => String(ct || '').startsWith('image/')
+    ? { 'Cache-Control': 'public, max-age=604800, immutable' } : {};
   const hit = cache.get(target);
-  if (hit && hit.exp > Date.now()) { res.writeHead(hit.status, { 'Content-Type': hit.ctype, 'X-Cache': 'HIT' }); return res.end(hit.body); }
+  if (hit && hit.exp > Date.now()) {
+    res.writeHead(hit.status, { 'Content-Type': hit.ctype, 'X-Cache': 'HIT', ...imgHeaders(hit.ctype) });
+    return res.end(hit.body);
+  }
   try {
     const r = await fetchFollow(target);
-    if (r.status === 200) cache.set(target, { ...r, exp: Date.now() + TTL_MS });
-    res.writeHead(r.status, { 'Content-Type': r.ctype }); res.end(r.body);
+    const isImg = String(r.ctype || '').startsWith('image/');
+    if (r.status === 200) cache.set(target, { ...r, exp: Date.now() + (isImg ? IMG_TTL_MS : TTL_MS) });
+    res.writeHead(r.status, { 'Content-Type': r.ctype, ...imgHeaders(r.ctype) }); res.end(r.body);
   } catch (e) { res.writeHead(502); res.end('gateway error: ' + e.message); }
 }
 // Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.

@@ -79,7 +79,7 @@ fun UserCardSheet(
                 c == null -> Text("Загрузка…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> {
                     Box {
-                        Avatar(c.avatar, 84.dp)
+                        Avatar(c.avatar, 84.dp, nick = c.nick)
                         if (c.online) {
                             Box(
                                 Modifier

@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.shikimori.ShikiAnime
-import com.anipulse.app.data.shikimori.posterOf
+import com.anipulse.app.data.shikimori.posterPreviewOf
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -116,7 +116,7 @@ fun CatalogScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         AsyncImage(
-                            model = posterOf(anime.id, anime.image),
+                            model = posterPreviewOf(anime.id, anime.image),
                             contentDescription = null,
                             modifier = Modifier.size(width = 34.dp, height = 48.dp).clip(RoundedCornerShape(6.dp)),
                             contentScale = ContentScale.Crop,
@@ -277,8 +277,8 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(posterOf(anime.id, anime.image))
-                    .memoryCacheKey("poster_${anime.id}")
+                    .data(posterPreviewOf(anime.id, anime.image))
+                    .memoryCacheKey("poster_prev_${anime.id}")
                     .build(),
                 contentDescription = anime.russian ?: anime.name,
                 modifier = Modifier.fillMaxSize().then(

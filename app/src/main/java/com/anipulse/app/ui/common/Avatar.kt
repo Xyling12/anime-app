@@ -32,8 +32,25 @@ val AVATAR_PRESETS: List<Pair<List<Color>, String>> = listOf(
     listOf(Color(0xFF4DC3FF), Color(0xFFFF4D8D)) to "🎧",
 )
 
+/**
+ * id >= 0 — пресет; id == -1 — кастомная аватарка пользователя (грузится по нику
+ * с шлюза /alapi/avatar-img). При -1 без ника или пока грузится — первый пресет фоном.
+ */
 @Composable
-fun Avatar(id: Int, size: Dp, modifier: Modifier = Modifier) {
+fun Avatar(id: Int, size: Dp, modifier: Modifier = Modifier, nick: String? = null, rev: Int = 0) {
+    if (id == -1 && !nick.isNullOrBlank()) {
+        coil.compose.AsyncImage(
+            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                .data(com.anipulse.app.data.Api.GATEWAY + "avatar-img?nick=" + java.net.URLEncoder.encode(nick, "UTF-8") + "&v=" + rev)
+                .memoryCacheKey("avatar_${nick.lowercase()}_$rev")
+                .crossfade(false)
+                .build(),
+            contentDescription = null,
+            modifier = modifier.size(size).clip(CircleShape),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        )
+        return
+    }
     val preset = AVATAR_PRESETS[id.coerceIn(0, AVATAR_PRESETS.size - 1)]
     Box(
         modifier

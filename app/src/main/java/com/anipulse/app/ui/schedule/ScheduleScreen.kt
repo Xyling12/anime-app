@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.Api
-import com.anipulse.app.data.shikimori.posterOf
+import com.anipulse.app.data.shikimori.posterPreviewOf
 
 @Composable
 fun ScheduleScreen(
@@ -150,8 +150,8 @@ private fun ScheduleList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> U
                                 val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
                                 AsyncImage(
                                     model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                        .data(posterOf(e.anime.id, e.anime.image))
-                                        .memoryCacheKey("poster_${e.anime.id}")
+                                        .data(posterPreviewOf(e.anime.id, e.anime.image))
+                                        .memoryCacheKey("poster_prev_${e.anime.id}")
                                         .build(),
                                     contentDescription = null,
                                     modifier = Modifier

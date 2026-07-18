@@ -55,6 +55,7 @@ import coil.compose.AsyncImage
 import com.anipulse.app.data.Api
 import com.anipulse.app.data.shikimori.ShikiAnime
 import com.anipulse.app.data.shikimori.posterOf
+import com.anipulse.app.data.shikimori.posterPreviewOf
 
 private val PulseGradient = Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF4D8D)))
 
@@ -106,8 +107,8 @@ fun HomeScreen(
                 ) {
                     AsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                            .data(posterOf(anime.id, anime.image))
-                            .memoryCacheKey("poster_${anime.id}")
+                            .data(posterPreviewOf(anime.id, anime.image))
+                            .memoryCacheKey("poster_prev_${anime.id}")
                             .build(),
                         contentDescription = anime.russian ?: anime.name,
                         modifier = Modifier.fillMaxSize(),
@@ -262,8 +263,8 @@ private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
                     val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
                     AsyncImage(
                         model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                            .data(posterOf(anime.id, anime.image))
-                            .memoryCacheKey("poster_${anime.id}")
+                            .data(posterPreviewOf(anime.id, anime.image))
+                            .memoryCacheKey("poster_prev_${anime.id}")
                             .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize().then(

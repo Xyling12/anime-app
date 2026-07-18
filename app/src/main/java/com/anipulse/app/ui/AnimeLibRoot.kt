@@ -1,5 +1,6 @@
 package com.anipulse.app.ui
 
+import com.anipulse.app.ui.common.topSafePadding
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -118,7 +119,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                     ) {
                         Row(
                             Modifier
-                                .statusBarsPadding()
+                                .topSafePadding()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,

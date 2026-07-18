@@ -100,8 +100,28 @@ fun ProfileScreen(
         // Закрыть диалог после успешного входа
         LaunchedEffect(state.nick) { if (state.nick != null) authDialog = null }
 
-        // Выбор аватара
+        // Выбор аватара: 12 пресетов + загрузка своей картинки (жмём до 256px JPEG перед отправкой)
         var avatarDialog by remember { mutableStateOf(false) }
+        val pickCtx = androidx.compose.ui.platform.LocalContext.current
+        val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+        ) { uri ->
+            if (uri != null) {
+                runCatching {
+                    val src = pickCtx.contentResolver.openInputStream(uri)?.use {
+                        android.graphics.BitmapFactory.decodeStream(it)
+                    } ?: return@runCatching
+                    val side = minOf(src.width, src.height)
+                    // центр-кроп в квадрат + даунскейл до 256
+                    val square = android.graphics.Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+                    val scaled = android.graphics.Bitmap.createScaledBitmap(square, 256, 256, true)
+                    val out = java.io.ByteArrayOutputStream()
+                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                    viewModel.uploadAvatar(out.toByteArray())
+                }
+                avatarDialog = false
+            }
+        }
         if (avatarDialog) {
             AlertDialog(
                 onDismissRequest = { avatarDialog = false },
@@ -117,9 +137,26 @@ fun ProfileScreen(
                                 }
                             }
                         }
+                        if (state.nick != null) {
+                            TextButton(onClick = {
+                                photoPicker.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            }) { Text("📷 Загрузить свою…") }
+                        }
                     }
                 },
                 confirmButton = { TextButton(onClick = { avatarDialog = false }) { Text("Закрыть") } },
+            )
+        }
+        state.avatarUploadError?.let {
+            Text(
+                it,
+                Modifier.padding(horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
             )
         }
 
@@ -129,7 +166,7 @@ fun ProfileScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.clickable { avatarDialog = true }) {
-                Avatar(state.avatarId, 52.dp)
+                Avatar(state.avatarId, 52.dp, nick = state.nick, rev = state.avatarRev)
             }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

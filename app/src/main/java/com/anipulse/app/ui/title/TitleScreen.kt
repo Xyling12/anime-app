@@ -110,6 +110,7 @@ fun TitleScreen(
                             model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                 .data(posterOf(animeId, d?.image))
                                 .memoryCacheKey("poster_$animeId")
+                                .placeholderMemoryCacheKey("poster_prev_$animeId")
                                 .build(),
                             contentDescription = displayTitle,
                             modifier = Modifier.fillMaxSize().then(
@@ -433,7 +434,7 @@ fun TitleScreen(
                     // Спойлеры скрыты до тапа
                     var revealed by remember(cm.id) { mutableStateOf(false) }
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp)
+                        com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
                         Column(
                             Modifier
                                 .padding(start = 10.dp)
