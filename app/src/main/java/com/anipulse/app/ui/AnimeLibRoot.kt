@@ -99,6 +99,14 @@ private val tabs = listOf(
 fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
     val isDarkTheme by menuViewModel.isDarkTheme.collectAsState()
     AnimeLibTheme(darkTheme = isDarkTheme) {
+        // Цвет иконок статус-бара (часы/батарея) должен следовать теме приложения,
+        // а не системной: в светлой теме без этого иконки оставались белыми на белом.
+        val view = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.SideEffect {
+            (view.context as? android.app.Activity)?.window?.let { w ->
+                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = !isDarkTheme
+            }
+        }
 
         val navController = rememberNavController()
         val backStack by navController.currentBackStackEntryAsState()

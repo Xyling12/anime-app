@@ -9,7 +9,30 @@ import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 
 @HiltAndroidApp
-class AnimeLibApp : Application() {
+class AnimeLibApp : Application(), coil.ImageLoaderFactory {
+
+    /**
+     * Общий загрузчик картинок: до 2 повторов при сетевом сбое/5xx.
+     * Лечит «постер то есть, то нет» — разовые обрывы на мобильной сети
+     * раньше оставляли пустую карточку до пересоздания элемента списка.
+     */
+    override fun newImageLoader(): coil.ImageLoader =
+        coil.ImageLoader.Builder(this)
+            .okHttpClient {
+                okhttp3.OkHttpClient.Builder()
+                    .addInterceptor { chain ->
+                        var res = chain.proceed(chain.request())
+                        var tries = 0
+                        while (!res.isSuccessful && tries < 2) {
+                            res.close(); tries++
+                            res = chain.proceed(chain.request())
+                        }
+                        res
+                    }
+                    .build()
+            }
+            .crossfade(true)
+            .build()
 
     override fun onCreate() {
         super.onCreate()
