@@ -134,9 +134,10 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     private fun notify(ctx: Context, channel: String, id: Int, title: String, text: String) {
+        val channelId = if (channel == "chat") channel else "${channel}_pulse"
         val intent = Intent(ctx, MainActivity::class.java)
         val pi = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        val n = NotificationCompat.Builder(ctx, channel)
+        val n = NotificationCompat.Builder(ctx, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(text)
@@ -156,16 +157,16 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val pulseSound = android.net.Uri.parse("android.resource://${ctx.packageName}/${com.anipulse.app.R.raw.anipulse_pulse}")
             listOf(
-                NotificationChannel("dm", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("mentions", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("social", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
-                NotificationChannel("episodes", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel("dm_pulse", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel("mentions_pulse", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel("social_pulse", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel("episodes_pulse", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
                 // «Все» — намеренно тихий канал (много сообщений), звук явно выключен.
                 NotificationChannel("chat", "Общий чат (режим «Все»)", NotificationManager.IMPORTANCE_LOW),
             ).forEach { ch ->
-                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(defaultSound, soundAttrs)
+                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(pulseSound, soundAttrs)
                 nm.createNotificationChannel(ch)
             }
         }

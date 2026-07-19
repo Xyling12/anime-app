@@ -286,7 +286,7 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             )
             anime.score?.takeIf { it != "0.0" }?.let { score ->
                 Text(
-                    text = score,
+                    text = "Shiki ★ $score",
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
@@ -300,7 +300,7 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             // Оценка AniPulse (свой рейтинг пользователей) — слева сверху
             pulseRating?.let { pr ->
                 Text(
-                    text = "♥ %.1f".format(pr),
+                    text = "AniPulse ♥ %.1f".format(pr),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)

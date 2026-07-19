@@ -152,7 +152,7 @@ fun TitleScreen(
                                 Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text(
                                     listOfNotNull(
-                                        d.score?.takeIf { it != "0.0" }?.let { "★ $it" },
+                                        d.score?.takeIf { it != "0.0" }?.let { "Shikimori ★ $it" },
                                         d.airedOn?.take(4),
                                         d.episodes?.let { "Эп: $it" },
                                         d.kind?.uppercase(),
@@ -266,7 +266,7 @@ fun TitleScreen(
                         Spacer(Modifier.weight(1f))
                         state.ratingAvg?.let { avg ->
                             Text(
-                                "♥ $avg AniPulse · ${state.ratingCount}",
+                                "AniPulse ♥ $avg · ${state.ratingCount} оценок",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,

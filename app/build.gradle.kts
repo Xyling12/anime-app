@@ -25,11 +25,12 @@ android {
     buildToolsVersion = "35.0.1"
 
     defaultConfig {
-        applicationId = "com.anipulse.app"
+        // Preview package is intentionally installable alongside production.
+        applicationId = "com.anipulse.app.redesign"
         minSdk = 26
         targetSdk = 35
         versionCode = 7
-        versionName = "0.3.4"
+        versionName = "0.3.4-redesign-preview"
     }
 
     signingConfigs {

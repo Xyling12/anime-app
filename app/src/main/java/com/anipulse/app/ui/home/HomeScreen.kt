@@ -135,8 +135,13 @@ fun HomeScreen(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        anime.score?.takeIf { it != "0.0" }?.let {
-                            Text("★ $it", style = MaterialTheme.typography.labelMedium, color = Color(0xFFFFD54F))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            anime.score?.takeIf { it != "0.0" }?.let {
+                                Text("Shikimori ★ $it", style = MaterialTheme.typography.labelMedium, color = Color(0xFFFFD54F))
+                            }
+                            state.pulseRatings[anime.id]?.let {
+                                Text("AniPulse ♥ %.1f".format(it), style = MaterialTheme.typography.labelMedium, color = Color(0xFFFF4D8D))
+                            }
                         }
                         Spacer(Modifier.height(10.dp))
                         Button(
@@ -224,15 +229,15 @@ fun HomeScreen(
 
         if (state.forYou.isNotEmpty()) {
             SectionHeader("Для вас")
-            PosterRow(state.forYou, onTitleClick)
+            PosterRow(state.forYou, state.pulseRatings, onTitleClick)
         }
         if (state.popular.isNotEmpty()) {
             SectionHeader("Популярное")
-            PosterRow(state.popular, onTitleClick)
+            PosterRow(state.popular, state.pulseRatings, onTitleClick)
         }
         if (state.topRated.isNotEmpty()) {
             SectionHeader("Высший рейтинг")
-            PosterRow(state.topRated, onTitleClick)
+            PosterRow(state.topRated, state.pulseRatings, onTitleClick)
         }
 
         Spacer(Modifier.height(24.dp))
@@ -251,7 +256,7 @@ private fun SectionHeader(title: String) {
 
 @androidx.compose.animation.ExperimentalSharedTransitionApi
 @Composable
-private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
+private fun PosterRow(items: List<ShikiAnime>, pulseRatings: Map<Long, Double>, onTitleClick: (Long) -> Unit) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -272,7 +277,7 @@ private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
                     )
                     anime.score?.takeIf { it != "0.0" }?.let { score ->
                         Text(
-                            score,
+                            "Shiki ★ $score",
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(6.dp)
@@ -281,6 +286,19 @@ private fun PosterRow(items: List<ShikiAnime>, onTitleClick: (Long) -> Unit) {
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFFFFD54F),
+                        )
+                    }
+                    pulseRatings[anime.id]?.let { rating ->
+                        Text(
+                            "AniPulse ♥ %.1f".format(rating),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xCC000000))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFF4D8D),
                         )
                     }
                 }

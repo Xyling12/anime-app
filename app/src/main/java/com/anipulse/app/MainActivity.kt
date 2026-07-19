@@ -10,9 +10,13 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import com.anipulse.app.data.GatewayApi
 import com.anipulse.app.data.SettingsStore
 import com.anipulse.app.ui.AnimeLibRoot
@@ -45,7 +49,18 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
         handleAuthDeepLink(intent)
+        if (savedInstanceState == null) {
+            com.anipulse.app.notify.SoundPlayer.playMessageSound(this)
+        }
         setContent {
+            var showLaunch by remember { mutableStateOf(savedInstanceState == null) }
+            LaunchedEffect(showLaunch) {
+                if (showLaunch) {
+                    delay(1150)
+                    showLaunch = false
+                }
+            }
+            Box {
             AnimeLibRoot()
             pendingLogin?.let { (token, nick) ->
                 AlertDialog(
@@ -58,11 +73,13 @@ class MainActivity : ComponentActivity() {
                             settings.authNick = nick
                             settings.authEmail = null
                             pendingLogin = null
-                            Toast.makeText(this, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
                         }) { Text("Войти") }
                     },
                     dismissButton = { TextButton(onClick = { pendingLogin = null }) { Text("Отмена") } },
                 )
+            }
+            if (showLaunch) com.anipulse.app.ui.common.LaunchPulseOverlay()
             }
         }
     }
