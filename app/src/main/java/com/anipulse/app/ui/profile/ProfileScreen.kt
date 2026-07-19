@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,16 @@ import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +57,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.anipulse.app.ui.common.AVATAR_PRESETS
 import com.anipulse.app.ui.common.Avatar
@@ -73,6 +85,14 @@ fun ProfileScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
+    ProfileRedesign(
+        state = state,
+        isDarkTheme = isDarkTheme,
+        onThemeToggle = onThemeToggle,
+        viewModel = viewModel,
+    )
+    return
 
     Column(
         Modifier
@@ -184,11 +204,16 @@ fun ProfileScreen(
         // Компактная строка статистики как в утверждённом макете.
         val hours = state.watchTimeMs / 3_600_000
         val minutes = state.watchTimeMs % 3_600_000 / 60_000
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard(Modifier.weight(1f).height(92.dp), "${state.watchedEpisodes}", "Серий", Icons.Outlined.Visibility)
-            StatCard(Modifier.weight(1f).height(92.dp), "$hours ч", "Просмотр", Icons.Outlined.Schedule)
-            StatCard(Modifier.weight(1f).height(92.dp), "${state.startedTitles}", "Начато", Icons.Outlined.PlayCircleOutline)
-            StatCard(Modifier.weight(1f).height(92.dp), "${state.favoritesCount}", "В Моём", Icons.Outlined.FavoriteBorder)
+        Surface(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            color = Color(0xFF15151F), shape = RoundedCornerShape(16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProfileStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Серий")
+                ProfileStat(Modifier.weight(1f), "$hours ч", "Просмотр")
+                ProfileStat(Modifier.weight(1f), "${state.startedTitles}", "Начато")
+                ProfileStat(Modifier.weight(1f), "${state.favoritesCount}", "В Моём")
+            }
         }
 
         // Плашка подтверждения почты (без него закрыты чат/комменты/ЛС)
@@ -391,6 +416,125 @@ fun ProfileScreen(
 }
 
 @Composable
+private fun ProfileRedesign(
+    state: ProfileState,
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit,
+    viewModel: ProfileViewModel,
+) {
+    var authMode by remember { mutableStateOf<String?>(null) }
+    var playerExpanded by remember { mutableStateOf(false) }
+    authMode?.let { mode ->
+        AuthDialog(
+            mode = mode,
+            busy = state.authBusy,
+            error = state.authError,
+            resetCodeSent = state.resetCodeSent,
+            onDismiss = { authMode = null; viewModel.clearAuthError() },
+            onLogin = viewModel::login,
+            onRegister = viewModel::register,
+            onForgot = viewModel::forgotPassword,
+            onReset = viewModel::resetPassword,
+        )
+    }
+    LaunchedEffect(state.nick) { if (state.nick != null) authMode = null }
+    val hours = state.watchTimeMs / 3_600_000
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(state.avatarId, 78.dp, nick = state.nick, rev = state.avatarRev)
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                if (state.nick != null) {
+                    Surface(color = Color(0xFF6A2B8A), shape = RoundedCornerShape(5.dp)) {
+                        Text("◆ Premium", Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFE9B7FF))
+                    }
+                    Text("С нами с мая 2026", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("Просмотр и «Моё» работают без входа", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+            Row(Modifier.fillMaxWidth().height(72.dp), verticalAlignment = Alignment.CenterVertically) {
+                ReferenceStat(Modifier.weight(1f), "${state.startedTitles}", "Смотрю")
+                ReferenceStat(Modifier.weight(1f), "${state.favoritesCount}", "В планах")
+                ReferenceStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Просмотрено")
+                ReferenceStat(Modifier.weight(1f), if (hours > 999) "${hours / 1000}.${(hours % 1000) / 100}K" else "$hours", "Часов")
+            }
+        }
+
+        ReferenceGroup {
+            ReferenceRow(Icons.Outlined.Settings, "Настройки плеера", onClick = { playerExpanded = !playerExpanded })
+            if (playerExpanded) {
+                CompactToggle("Автопропуск опенинга", state.autoSkipOpening, viewModel::setAutoSkipOpening)
+                CompactToggle("Автопропуск повтора", state.autoSkipRecap, viewModel::setAutoSkipRecap)
+                CompactToggle("Следующая серия автоматически", state.autoNextEpisode, viewModel::setAutoNextEpisode)
+            }
+            ReferenceRow(Icons.Outlined.Notifications, "Уведомления")
+            ReferenceRow(Icons.Outlined.DarkMode, "Тема приложения", if (isDarkTheme) "Тёмная" else "Светлая", onThemeToggle)
+        }
+        ReferenceGroup {
+            ReferenceRow(Icons.Outlined.Person, "Аккаунт", onClick = { if (state.nick == null) authMode = "login" else viewModel.logout() })
+            ReferenceRow(Icons.Outlined.Security, "Конфиденциальность")
+            ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка")
+        }
+        ReferenceGroup {
+            ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)
+        }
+        if (state.nick == null) {
+            Button(
+                onClick = { authMode = "register" },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text("Создать аккаунт", fontWeight = FontWeight.Bold) }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable private fun ReferenceStat(modifier: Modifier, value: String, label: String) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
+@Composable private fun ReferenceGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(Modifier.fillMaxWidth(), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+        Column(content = content)
+    }
+}
+
+@Composable private fun ReferenceRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    trailing: String? = null,
+    onClick: () -> Unit = {},
+) {
+    Row(
+        Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, Modifier.padding(start = 10.dp).weight(1f), style = MaterialTheme.typography.bodyMedium)
+        trailing?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (trailing == null) Icon(Icons.Outlined.ChevronRight, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable private fun CompactToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(44.dp).padding(start = 40.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        Switch(checked, onChange, modifier = Modifier.size(width = 44.dp, height = 28.dp))
+    }
+}
+
+@Composable
 private fun BugReportDialog(
     busy: Boolean,
     error: String?,
@@ -480,36 +624,59 @@ private fun AuthDialog(
     val isRegister = step == "register"
     val isForgot = step == "forgot"
 
-    AlertDialog(
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isRegister) "Создать аккаунт" else if (isForgot) "Восстановление пароля" else "Вход") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(Modifier.fillMaxSize().background(Color(0xFF09090F))) {
+            Text(
+                "‹",
+                modifier = Modifier.padding(start = 20.dp, top = 54.dp).clickable(onClick = onDismiss).padding(8.dp),
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+            )
+        Surface(
+            modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 22.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF15151F),
+            tonalElevation = 0.dp,
+        ) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(68.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF0B0B11)), contentAlignment = Alignment.Center) {
+                    Text("A", style = MaterialTheme.typography.headlineLarge, color = Color.White, fontWeight = FontWeight.Black)
+                    Text("⌁", modifier = Modifier.align(Alignment.BottomCenter), color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    if (isRegister) "Создать аккаунт" else if (isForgot) "Восстановление пароля" else "Вход",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
                 if (isForgot) {
-                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Почта аккаунта") }, singleLine = true, enabled = !resetCodeSent)
+                    OutlinedTextField(value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Почта аккаунта") }, singleLine = true, enabled = !resetCodeSent, shape = RoundedCornerShape(12.dp))
                     if (resetCodeSent) {
                         Text("Код отправлен на почту (проверьте и папку «Спам»).", style = MaterialTheme.typography.bodySmall)
-                        OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Код из письма") }, singleLine = true)
+                        OutlinedTextField(value = code, onValueChange = { code = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Код из письма") }, singleLine = true, shape = RoundedCornerShape(12.dp))
                         OutlinedTextField(
-                            value = pw, onValueChange = { pw = it }, label = { Text("Новый пароль") }, singleLine = true,
+                            value = pw, onValueChange = { pw = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Новый пароль") }, singleLine = true, shape = RoundedCornerShape(12.dp),
                             visualTransformation = PasswordVisualTransformation(),
                         )
                     }
                 } else if (isRegister) {
-                    OutlinedTextField(value = nick, onValueChange = { nick = it }, label = { Text("Ник") }, singleLine = true)
-                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Почта") }, singleLine = true)
+                    OutlinedTextField(value = nick, onValueChange = { nick = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ник") }, singleLine = true, shape = RoundedCornerShape(12.dp))
+                    OutlinedTextField(value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Почта") }, singleLine = true, shape = RoundedCornerShape(12.dp))
                 } else {
-                    OutlinedTextField(value = login, onValueChange = { login = it }, label = { Text("Ник или почта") }, singleLine = true)
+                    OutlinedTextField(value = login, onValueChange = { login = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ник или почта") }, singleLine = true, shape = RoundedCornerShape(12.dp))
                 }
                 if (!isForgot) {
                     OutlinedTextField(
-                        value = pw, onValueChange = { pw = it }, label = { Text("Пароль") }, singleLine = true,
+                        value = pw, onValueChange = { pw = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Пароль") }, singleLine = true, shape = RoundedCornerShape(12.dp),
                         visualTransformation = PasswordVisualTransformation(),
                     )
                 }
                 if (isRegister) {
                     OutlinedTextField(
-                        value = pw2, onValueChange = { pw2 = it }, label = { Text("Подтверждение пароля") }, singleLine = true,
+                        value = pw2, onValueChange = { pw2 = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Подтверждение пароля") }, singleLine = true, shape = RoundedCornerShape(12.dp),
                         visualTransformation = PasswordVisualTransformation(),
                     )
                 }
@@ -528,11 +695,11 @@ private fun AuthDialog(
                         Text("Подождите…", Modifier.padding(start = 10.dp), style = MaterialTheme.typography.bodySmall)
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
+                Button(
                 enabled = !busy,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
                 onClick = {
                     when {
                         isForgot && !resetCodeSent -> onForgot(email)
@@ -541,10 +708,19 @@ private fun AuthDialog(
                         else -> onLogin(login, pw)
                     }
                 },
-            ) { Text(if (isRegister) "Зарегистрироваться" else if (isForgot) { if (resetCodeSent) "Сменить пароль" else "Отправить код" } else "Войти") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
+                ) { Text(if (isRegister) "Зарегистрироваться" else if (isForgot) { if (resetCodeSent) "Сменить пароль" else "Отправить код" } else "Войти", fontWeight = FontWeight.Bold) }
+                if (!isForgot) {
+                    Text("или войти через", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SocialButton(Modifier.weight(1f).clickable { openOAuth(context, "yandex", null) }, "Яндекс", "Я", Color(0xFFFC3F1D))
+                        SocialButton(Modifier.weight(1f).clickable { openOAuth(context, "vk", null) }, "VK", "VK", Color(0xFF0077FF))
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        }
+        }
+    }
 }
 
 @Composable
@@ -568,6 +744,15 @@ private fun StatCard(modifier: Modifier, value: String, label: String, icon: and
                 modifier = Modifier.size(24.dp).align(Alignment.TopEnd)
             )
         }
+    }
+}
+
+@Composable
+private fun ProfileStat(modifier: Modifier, value: String, label: String) {
+    Column(modifier.padding(horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 

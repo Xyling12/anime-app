@@ -11,12 +11,17 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -158,7 +163,11 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                         Text(
-                            if (currentTab.route == "home") "AniPulse" else currentTab.label,
+                            when (currentTab.route) {
+                                "home" -> "AniPulse"
+                                "profile" -> ""
+                                else -> currentTab.label
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
@@ -182,34 +191,32 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             },
             bottomBar = {
                 if (currentTab != null) {
-                    NavigationBar(
-                        modifier = Modifier.height(68.dp),
-                        containerColor = Color(0xFF101017),
-                        tonalElevation = 0.dp,
+                    androidx.compose.material3.Surface(color = Color(0xFF101017), tonalElevation = 0.dp) {
+                    Row(
+                        Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         tabs.forEach { tab ->
                             val selected = tab.route == currentTab.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = {
+                            Column(
+                                Modifier.weight(1f).fillMaxSize().clickable {
                                     navController.navigate(tab.route) {
                                         popUpTo(navController.graph.startDestinationId) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
                                 },
-                                icon = { Icon(if (selected) tab.activeIcon else tab.inactiveIcon, contentDescription = tab.label) },
-                                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
-                                alwaysShowLabel = true,
-                                colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                    indicatorColor = Color.Transparent,
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            )
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Icon(if (selected) tab.activeIcon else tab.inactiveIcon, tab.label, Modifier.size(23.dp), tint = tint)
+                                Spacer(Modifier.height(3.dp))
+                                Text(tab.label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1)
+                            }
                         }
+                    }
                     }
                 }
             },

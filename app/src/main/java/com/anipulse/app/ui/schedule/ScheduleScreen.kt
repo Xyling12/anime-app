@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import com.anipulse.app.ui.common.PillChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,20 +51,15 @@ fun ScheduleScreen(
     Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
         // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            color = Color(0xFF15151F),
+            shape = RoundedCornerShape(12.dp),
         ) {
-            PillChip(
-                selected = state.tab == 0,
-                onClick = { viewModel.setTab(0) },
-                label = "Расписание",
-            )
-            PillChip(
-                selected = state.tab == 1,
-                onClick = { viewModel.setTab(1) },
-                label = "Обновления",
-            )
+            Row(Modifier.padding(3.dp)) {
+                ScheduleSegment("Расписание", state.tab == 0, Modifier.weight(1f)) { viewModel.setTab(0) }
+                ScheduleSegment("Обновления", state.tab == 1, Modifier.weight(1f)) { viewModel.setTab(1) }
+            }
         }
 
         if (state.tab == 0) {
@@ -110,11 +104,16 @@ private fun ScheduleList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> U
                     1 -> "ПН" 2 -> "ВТ" 3 -> "СР" 4 -> "ЧТ" 5 -> "ПТ" 6 -> "СБ" else -> "ВС"
                 }
                 val isSelected = state.selectedDayDate == day.date
-                PillChip(
-                    selected = isSelected,
-                    onClick = { viewModel.selectDay(day.date) },
-                    label = "$dayOfWeekStr - ${day.date.dayOfMonth}"
-                )
+                Surface(
+                    modifier = Modifier.size(width = 54.dp, height = 58.dp).clickable { viewModel.selectDay(day.date) },
+                    color = if (isSelected) Color(0xFFFF3F83) else Color(0xFF15151F),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Text(day.date.dayOfMonth.toString(), fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(dayOfWeekStr, style = MaterialTheme.typography.labelSmall, color = if (isSelected) Color.White else Color(0xFF9D9AB0))
+                    }
+                }
             }
         }
 
@@ -198,6 +197,20 @@ private fun ScheduleList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> U
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+}
+
+@Composable
+private fun ScheduleSegment(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Color(0xFFFF3F83) else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (selected) Color.White else Color(0xFF9D9AB0), fontWeight = FontWeight.SemiBold)
     }
 }
 

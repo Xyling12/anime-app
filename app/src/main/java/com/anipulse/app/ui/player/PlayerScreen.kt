@@ -568,6 +568,15 @@ private fun NativePlayer(
                             modifier = Modifier.weight(1f),
                             placeholder = { Text("Комментарий…", color = Color(0xFF9D9AB0)) },
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color(0xFFFF4D8D),
+                                focusedContainerColor = Color(0xFF15151F),
+                                unfocusedContainerColor = Color(0xFF15151F),
+                                focusedBorderColor = Color(0xFFFF4D8D),
+                                unfocusedBorderColor = Color(0xFF343442),
+                            ),
                             maxLines = 2,
                         )
                         IconButton(
