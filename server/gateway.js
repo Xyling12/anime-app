@@ -1238,6 +1238,17 @@ const server = http.createServer((req, res) => {
   });
 });
 async function route(req, res) {
+  // CORS для веб-клиента (anipulsetv.ru + локальная разработка): браузерные fetch
+  // из веб-версии иначе режутся. Разрешаем только наши источники, не «*».
+  const origin = req.headers['origin'] || '';
+  if (/^https:\/\/(www\.)?anipulsetv\.ru$/.test(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (req.url === '/privacy') return handlePrivacyPage(res);
   if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
   const dubsM = req.url.match(/^\/alapi\/kodik-dubs\?shikimoriId=(\d+)/);
