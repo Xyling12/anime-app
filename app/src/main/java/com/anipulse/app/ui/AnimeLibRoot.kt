@@ -147,19 +147,19 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             topBar = {
                 if (currentTab != null) {
                     androidx.compose.material3.Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        color = MaterialTheme.colorScheme.background,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             Modifier
                                 .topSafePadding()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                         Text(
                             if (currentTab.route == "home") "AniPulse" else currentTab.label,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -183,9 +183,9 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             bottomBar = {
                 if (currentTab != null) {
                     NavigationBar(
-                        modifier = Modifier.height(60.dp),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp,
+                        modifier = Modifier.height(68.dp),
+                        containerColor = Color(0xFF101017),
+                        tonalElevation = 0.dp,
                     ) {
                         tabs.forEach { tab ->
                             val selected = tab.route == currentTab.route
@@ -199,7 +199,8 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                                     }
                                 },
                                 icon = { Icon(if (selected) tab.activeIcon else tab.inactiveIcon, contentDescription = tab.label) },
-                                alwaysShowLabel = false,
+                                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                                alwaysShowLabel = true,
                                 colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
                                     indicatorColor = Color.Transparent,
                                     selectedIconColor = MaterialTheme.colorScheme.primary,

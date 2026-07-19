@@ -162,14 +162,14 @@ fun ProfileScreen(
 
         // Шапка: гость или аккаунт
         Row(
-            Modifier.padding(16.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.clickable { avatarDialog = true }) {
-                Avatar(state.avatarId, 52.dp, nick = state.nick, rev = state.avatarRev)
+                Avatar(state.avatarId, 76.dp, nick = state.nick, rev = state.avatarRev)
             }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
                     state.email ?: "Просмотр и «Моё» работают без входа",
                     style = MaterialTheme.typography.bodySmall,
@@ -181,17 +181,14 @@ fun ProfileScreen(
             }
         }
 
-        // Статистика 2×2
+        // Компактная строка статистики как в утверждённом макете.
         val hours = state.watchTimeMs / 3_600_000
         val minutes = state.watchTimeMs % 3_600_000 / 60_000
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(Modifier.weight(1f).height(110.dp), "${state.watchedEpisodes}", "Серий просмотрено", Icons.Outlined.Visibility)
-            StatCard(Modifier.weight(1f).height(110.dp), "$hours ч $minutes м", "Времени в аниме", Icons.Outlined.Schedule)
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(Modifier.weight(1f).height(110.dp), "${state.startedTitles}", "Тайтлов начато", Icons.Outlined.PlayCircleOutline)
-            StatCard(Modifier.weight(1f).height(110.dp), "${state.favoritesCount}", "В списке «Моё»", Icons.Outlined.FavoriteBorder)
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatCard(Modifier.weight(1f).height(92.dp), "${state.watchedEpisodes}", "Серий", Icons.Outlined.Visibility)
+            StatCard(Modifier.weight(1f).height(92.dp), "$hours ч", "Просмотр", Icons.Outlined.Schedule)
+            StatCard(Modifier.weight(1f).height(92.dp), "${state.startedTitles}", "Начато", Icons.Outlined.PlayCircleOutline)
+            StatCard(Modifier.weight(1f).height(92.dp), "${state.favoritesCount}", "В Моём", Icons.Outlined.FavoriteBorder)
         }
 
         // Плашка подтверждения почты (без него закрыты чат/комменты/ЛС)

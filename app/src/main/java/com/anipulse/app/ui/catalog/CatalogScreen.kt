@@ -68,11 +68,11 @@ fun CatalogScreen(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                .height(50.dp)
                 // справа шире — чтобы не залезать под плавающую кнопку меню ☰
                 .padding(start = 16.dp, end = 72.dp),
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(14.dp),
+            color = Color(0xFF15151F),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
@@ -219,10 +219,10 @@ fun CatalogScreen(
             }
             else -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
-                    contentPadding = PaddingValues(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     itemsIndexed(state.items, key = { _, a -> a.id }) { index, anime ->
                         if (index >= state.items.size - 6) viewModel.loadNextPage()
@@ -248,12 +248,17 @@ fun CatalogScreen(
 @androidx.compose.animation.ExperimentalSharedTransitionApi
 @Composable
 fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = null) {
-    Column(Modifier.clickable(onClick = onClick)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF15151F),
+    ) {
+    Column(Modifier.padding(bottom = 10.dp)) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.66f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
         ) {
             // Постер с автоподбором из открытых источников (шлюз), под ним — плейсхолдер
             Box(
@@ -321,11 +326,16 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
         }
         Text(
             text = anime.russian?.ifBlank { null } ?: anime.name,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 9.dp),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            anime.score?.takeIf { it != "0.0" }?.let { Text("Shiki ★ $it", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F)) }
+            pulseRating?.let { Text("AniPulse ♥ %.1f".format(it), style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF4D8D)) }
+        }
+    }
     }
 }

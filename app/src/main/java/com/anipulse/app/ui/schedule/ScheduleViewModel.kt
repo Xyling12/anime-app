@@ -100,7 +100,7 @@ class ScheduleViewModel @Inject constructor(
     fun timeOf(entry: ShikiCalendarEntry): String? =
         entry.nextEpisodeAt
             ?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(MSK) }.getOrNull() }
-            ?.let { "%d:%02d\nмск".format(it.hour, it.minute) }
+            ?.let { "%d:%02d".format(it.hour, it.minute) }
 
     /** «сегодня/вчера, HH:mm» для ленты обновлений. */
     fun freshLabel(update: AnilibriaUpdate): String? {

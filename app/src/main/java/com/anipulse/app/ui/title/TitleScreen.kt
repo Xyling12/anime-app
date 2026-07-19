@@ -255,24 +255,24 @@ fun TitleScreen(
                 // Моя оценка (1–10) + рейтинг AniPulse
                 item {
                     Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            "Моя оценка",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        state.ratingAvg?.let { avg ->
-                            Text(
-                                "AniPulse ♥ $avg · ${state.ratingCount} оценок",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                        Surface(Modifier.weight(1f), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Рейтинг Shikimori", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("★ ${d.score ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Surface(Modifier.weight(1f), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Рейтинг AniPulse", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("♥ ${state.ratingAvg ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)
+                                Text("${state.ratingCount} оценок", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
+                    Text("Моя оценка", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     if (state.isLoggedIn) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
