@@ -1034,12 +1034,17 @@ function uniqueNick(db, base) {
 }
 function socialLogin(provider, extId, displayName, res, state) {
   const db = loadUsers();
-  if (state && state.startsWith('link.')) {
-    const userId = verifyToken(state.slice(5));
+  // Источник входа: веб (state 'web'/'web.<...>') → редирект на сайт; иначе deep link Android.
+  let web = false, realState = state || '';
+  if (realState === 'web') { web = true; realState = ''; }
+  else if (realState.startsWith('web.')) { web = true; realState = realState.slice(4); }
+  if (realState && realState.startsWith('link.')) {
+    const userId = verifyToken(realState.slice(5));
     const u = userId && db.users.find(x => x.id === userId);
     if (u) {
       u.linked = u.linked || {}; u.linked[provider] = String(extId); saveUsers(db);
-      res.writeHead(302, { Location: 'anipulse://auth?linked=' + provider }); return res.end();
+      const loc = web ? 'https://anipulsetv.ru/profile?linked=' + provider : 'anipulse://auth?linked=' + provider;
+      res.writeHead(302, { Location: loc }); return res.end();
     }
   }
   let user = db.users.find(u => u.linked && u.linked[provider] === String(extId));
@@ -1055,7 +1060,10 @@ function socialLogin(provider, extId, displayName, res, state) {
     db.users.push(user); saveUsers(db);
   }
   const token = makeToken(user.id);
-  res.writeHead(302, { Location: 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick) });
+  const loc = web
+    ? 'https://anipulsetv.ru/auth/callback?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick)
+    : 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick);
+  res.writeHead(302, { Location: loc });
   res.end();
 }
 // CSRF-защита колбэка Яндекса: клиентский state не проверялся на возврате (login CSRF) —
