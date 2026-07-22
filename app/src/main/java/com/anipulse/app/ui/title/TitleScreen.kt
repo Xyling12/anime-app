@@ -286,13 +286,13 @@ fun TitleScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Surface(Modifier.weight(1f), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
                             Column(Modifier.padding(14.dp)) {
                                 Text("Рейтинг Shikimori", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("★ ${d.score ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                                Text("★ ${d.score?.takeIf { it.toDoubleOrNull()?.let { value -> value > 0.0 } == true } ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
                             }
                         }
-                        Surface(Modifier.weight(1f), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
                             Column(Modifier.padding(14.dp)) {
                                 Text("Рейтинг AniPulse", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("♥ ${state.ratingAvg ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)

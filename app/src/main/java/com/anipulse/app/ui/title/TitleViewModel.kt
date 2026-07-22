@@ -112,7 +112,11 @@ class TitleViewModel @Inject constructor(
     }
 
     fun toggleEpisodeNotification() {
-        _state.update { it.copy(episodeNotifyEnabled = settings.toggleEpisodeNotify(animeId)) }
+        val enabled = settings.toggleEpisodeNotify(animeId)
+        _state.update { it.copy(episodeNotifyEnabled = enabled) }
+        if (enabled && !_state.value.isFavorite) {
+            viewModelScope.launch { favoriteDao.upsert(makeFavorite("planned")) }
+        }
     }
 
     fun postComment(text: String) {
