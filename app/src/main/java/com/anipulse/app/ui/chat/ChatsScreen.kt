@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -183,15 +184,16 @@ private fun ChatEntry(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .height(72.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(Color(0xFF15151F))
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(16.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .14f)),
+            Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .14f)),
             contentAlignment = Alignment.Center,
         ) { icon() }
         Spacer(Modifier.width(13.dp))

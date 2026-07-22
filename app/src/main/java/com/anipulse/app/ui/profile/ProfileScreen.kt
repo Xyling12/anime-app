@@ -37,8 +37,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.Image
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -425,7 +430,17 @@ private fun ProfileRedesign(
     var authMode by remember { mutableStateOf<String?>(null) }
     var playerExpanded by remember { mutableStateOf(false) }
     var profileDialog by remember { mutableStateOf<String?>(null) }
+    var avatarDialog by remember { mutableStateOf(false) }
+    var cropBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let {
+            cropBitmap = context.contentResolver.openInputStream(it)?.use(android.graphics.BitmapFactory::decodeStream)
+            avatarDialog = false
+        }
+    }
     authMode?.let { mode ->
         AuthDialog(
             mode = mode,
@@ -440,7 +455,54 @@ private fun ProfileRedesign(
         )
     }
     LaunchedEffect(state.nick) { if (state.nick != null) authMode = null }
-    profileDialog?.let { dialog ->
+    if (avatarDialog) {
+        AlertDialog(
+            onDismissRequest = { avatarDialog = false },
+            title = { Text("Выберите аватар") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AVATAR_PRESETS.indices.chunked(4).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            row.forEach { id ->
+                                Box(Modifier.clickable { viewModel.setAvatar(id); avatarDialog = false }) { Avatar(id, 54.dp) }
+                            }
+                        }
+                    }
+                    if (state.nick != null) TextButton(onClick = {
+                        photoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }) { Text("Выбрать своё изображение") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { avatarDialog = false }) { Text("Закрыть") } },
+        )
+    }
+    cropBitmap?.let { bitmap ->
+        AvatarCropDialog(bitmap, onDismiss = { cropBitmap = null }) { bytes ->
+            viewModel.uploadAvatar(bytes)
+            cropBitmap = null
+        }
+    }
+    if (profileDialog == "account") {
+        Dialog(onDismissRequest = { profileDialog = null }) {
+            Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Avatar(state.avatarId, 72.dp, nick = state.nick, rev = state.avatarRev)
+                    Spacer(Modifier.height(12.dp))
+                    Text(state.nick.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(state.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(22.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.logout(); profileDialog = null },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(12.dp),
+                    ) { Text("Выйти из аккаунта") }
+                    TextButton(onClick = { profileDialog = null }) { Text("Отмена") }
+                }
+            }
+        }
+    }
+    profileDialog?.takeIf { it != "account" }?.let { dialog ->
         AlertDialog(
             onDismissRequest = { profileDialog = null },
             title = { Text(when (dialog) { "account" -> "Аккаунт"; "privacy" -> "Конфиденциальность"; else -> "Справка и поддержка" }) },
@@ -465,14 +527,13 @@ private fun ProfileRedesign(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(state.avatarId, 78.dp, nick = state.nick, rev = state.avatarRev)
+            Box(Modifier.clickable { avatarDialog = true }) {
+                Avatar(state.avatarId, 78.dp, nick = state.nick, rev = state.avatarRev)
+            }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 if (state.nick != null) {
-                    Surface(color = Color(0xFF6A2B8A), shape = RoundedCornerShape(5.dp)) {
-                        Text("◆ Premium", Modifier.padding(horizontal = 7.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFFE9B7FF))
-                    }
-                    Text("С нами с мая 2026", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(state.email.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text("Просмотр и «Моё» работают без входа", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -521,6 +582,64 @@ private fun ProfileRedesign(
             ) { Text("Создать аккаунт", fontWeight = FontWeight.Bold) }
         }
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun AvatarCropDialog(
+    bitmap: android.graphics.Bitmap,
+    onDismiss: () -> Unit,
+    onCrop: (ByteArray) -> Unit,
+) {
+    var horizontal by remember { mutableStateOf(.5f) }
+    var vertical by remember { mutableStateOf(.5f) }
+    var zoom by remember { mutableStateOf(1f) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(22.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Область аватара", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Настройте положение и масштаб", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(
+                    Modifier.fillMaxWidth().height(270.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = zoom
+                            scaleY = zoom
+                            translationX = (.5f - horizontal) * 180f * zoom
+                            translationY = (.5f - vertical) * 180f * zoom
+                        },
+                    )
+                    Box(Modifier.fillMaxSize().padding(2.dp).clip(CircleShape).background(Color.Transparent))
+                }
+                Text("По горизонтали", style = MaterialTheme.typography.labelSmall)
+                Slider(horizontal, { horizontal = it })
+                Text("По вертикали", style = MaterialTheme.typography.labelSmall)
+                Slider(vertical, { vertical = it })
+                Text("Масштаб", style = MaterialTheme.typography.labelSmall)
+                Slider(zoom, { zoom = it }, valueRange = 1f..3f)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
+                    Button(
+                        onClick = {
+                            val side = (minOf(bitmap.width, bitmap.height) / zoom).toInt().coerceAtLeast(1)
+                            val left = ((bitmap.width - side) * horizontal).toInt().coerceIn(0, bitmap.width - side)
+                            val top = ((bitmap.height - side) * vertical).toInt().coerceIn(0, bitmap.height - side)
+                            val cropped = android.graphics.Bitmap.createBitmap(bitmap, left, top, side, side)
+                            val scaled = android.graphics.Bitmap.createScaledBitmap(cropped, 256, 256, true)
+                            val output = java.io.ByteArrayOutputStream()
+                            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, output)
+                            onCrop(output.toByteArray())
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Сохранить") }
+                }
+            }
+        }
     }
 }
 
