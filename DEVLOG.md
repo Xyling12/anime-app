@@ -416,3 +416,4 @@
 - Плеер обновлён; кнопки пропуска разнесены вертикально и больше не перекрываются.
 - Production gateway дополнен DELETE-маршрутами rating/comments/chat; деплой выполнен с бэкапом `/opt/anipulse/gateway.js.bak.20260722-034534`.
 - Релиз повышен до `versionCode 8`, `versionName 0.4.0-beta`, пакет снова `com.anipulse.app` для обновления существующих установок через OTA.
+- `0.4.0-beta` опубликована в OTA: `/opt/anipulse/AniPulse-latest.apk`, манифест `{versionCode:8}`; скачанный через публичный HTTPS APK проверен по SHA-256 `F695836A519C60E9013BE6078959A7D999EAB08AD170A0B8A2B7800D13B96677`. Бэкап предыдущего OTA-релиза: суффикс `20260722-041741`.
