@@ -504,7 +504,9 @@ private fun ProfileRedesign(
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Person, "Аккаунт", onClick = { if (state.nick == null) authMode = "login" else profileDialog = "account" })
-            ReferenceRow(Icons.Outlined.Security, "Конфиденциальность", onClick = { profileDialog = "privacy" })
+            ReferenceRow(Icons.Outlined.Security, "Конфиденциальность", onClick = {
+                openUrl(context, "https://5-42-99-195.sslip.io/privacy")
+            })
             ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
         }
         ReferenceGroup {
