@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,18 +93,17 @@ private fun ScheduleList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> U
     val state by viewModel.state.collectAsState()
     
     Column(Modifier.fillMaxSize()) {
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            items(state.days) { day ->
+            state.days.take(7).forEach { day ->
                 val dayOfWeekStr = when (day.date.dayOfWeek.value) {
                     1 -> "ПН" 2 -> "ВТ" 3 -> "СР" 4 -> "ЧТ" 5 -> "ПТ" 6 -> "СБ" else -> "ВС"
                 }
                 val isSelected = state.selectedDayDate == day.date
                 Surface(
-                    modifier = Modifier.size(width = 54.dp, height = 58.dp).clickable { viewModel.selectDay(day.date) },
+                    modifier = Modifier.weight(1f).height(58.dp).clickable { viewModel.selectDay(day.date) },
                     color = if (isSelected) Color(0xFFFF3F83) else Color(0xFF15151F),
                     shape = RoundedCornerShape(12.dp),
                 ) {

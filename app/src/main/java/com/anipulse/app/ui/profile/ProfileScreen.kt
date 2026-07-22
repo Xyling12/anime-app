@@ -424,6 +424,8 @@ private fun ProfileRedesign(
 ) {
     var authMode by remember { mutableStateOf<String?>(null) }
     var playerExpanded by remember { mutableStateOf(false) }
+    var profileDialog by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     authMode?.let { mode ->
         AuthDialog(
             mode = mode,
@@ -438,6 +440,25 @@ private fun ProfileRedesign(
         )
     }
     LaunchedEffect(state.nick) { if (state.nick != null) authMode = null }
+    profileDialog?.let { dialog ->
+        AlertDialog(
+            onDismissRequest = { profileDialog = null },
+            title = { Text(when (dialog) { "account" -> "Аккаунт"; "privacy" -> "Конфиденциальность"; else -> "Справка и поддержка" }) },
+            text = {
+                Text(when (dialog) {
+                    "account" -> "${state.nick.orEmpty()}\n${state.email.orEmpty()}"
+                    "privacy" -> "Данные аккаунта используются только для синхронизации профиля, списка, оценок и комментариев."
+                    else -> "Если возникла проблема, отправьте сообщение через пункт «Сообщить о баге» в настройках приложения."
+                })
+            },
+            confirmButton = {
+                if (dialog == "account" && state.nick != null) {
+                    TextButton(onClick = { viewModel.logout(); profileDialog = null }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
+                } else TextButton(onClick = { profileDialog = null }) { Text("Понятно") }
+            },
+            dismissButton = { if (dialog == "account") TextButton(onClick = { profileDialog = null }) { Text("Отмена") } },
+        )
+    }
     val hours = state.watchTimeMs / 3_600_000
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
@@ -474,13 +495,17 @@ private fun ProfileRedesign(
                 CompactToggle("Автопропуск повтора", state.autoSkipRecap, viewModel::setAutoSkipRecap)
                 CompactToggle("Следующая серия автоматически", state.autoNextEpisode, viewModel::setAutoNextEpisode)
             }
-            ReferenceRow(Icons.Outlined.Notifications, "Уведомления")
+            ReferenceRow(Icons.Outlined.Notifications, "Уведомления", onClick = {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                context.startActivity(intent)
+            })
             ReferenceRow(Icons.Outlined.DarkMode, "Тема приложения", if (isDarkTheme) "Тёмная" else "Светлая", onThemeToggle)
         }
         ReferenceGroup {
-            ReferenceRow(Icons.Outlined.Person, "Аккаунт", onClick = { if (state.nick == null) authMode = "login" else viewModel.logout() })
-            ReferenceRow(Icons.Outlined.Security, "Конфиденциальность")
-            ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка")
+            ReferenceRow(Icons.Outlined.Person, "Аккаунт", onClick = { if (state.nick == null) authMode = "login" else profileDialog = "account" })
+            ReferenceRow(Icons.Outlined.Security, "Конфиденциальность", onClick = { profileDialog = "privacy" })
+            ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)

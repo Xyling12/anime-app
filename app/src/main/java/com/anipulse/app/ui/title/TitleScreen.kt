@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -103,7 +104,7 @@ fun TitleScreen(
             val d = state.details
             val displayTitle = d?.russian?.ifBlank { null } ?: d?.name
 
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize().imePadding()) {
                 item {
                     Box(Modifier.fillMaxWidth().height(340.dp)) {
                         AsyncImage(
