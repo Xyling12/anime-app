@@ -64,9 +64,21 @@ import com.anipulse.app.data.shikimori.posterOf
 fun TitleScreen(
     onBack: () -> Unit,
     onPlay: () -> Unit,
+    onOpenDm: (String) -> Unit = {},
     viewModel: TitleViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    var commentInput by remember { mutableStateOf("") }
+    var commentProfileNick by remember { mutableStateOf<String?>(null) }
+    commentProfileNick?.let { nick ->
+        com.anipulse.app.ui.common.UserCardSheet(
+            nick = nick,
+            gateway = viewModel.socialGateway,
+            token = viewModel.currentToken(),
+            onDismiss = { commentProfileNick = null },
+            onWrite = { target -> commentProfileNick = null; onOpenDm(target) },
+        )
+    }
 
     // Диалог «Сначала / Продолжить» для начатой серии
     var resumeDialogEp by remember { mutableStateOf<Int?>(null) }
@@ -440,7 +452,9 @@ fun TitleScreen(
                     // Спойлеры скрыты до тапа
                     var revealed by remember(cm.id) { mutableStateOf(false) }
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
+                        Box(Modifier.clickable { commentProfileNick = cm.nick }) {
+                            com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
+                        }
                         Column(
                             Modifier
                                 .padding(start = 10.dp)
@@ -454,6 +468,10 @@ fun TitleScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable {
+                                    val tag = "@${cm.nick} "
+                                    if (!commentInput.contains(tag)) commentInput = tag + commentInput
+                                },
                             )
                             if (cm.spoiler && !revealed) {
                                 Text(
@@ -469,20 +487,22 @@ fun TitleScreen(
                             } else {
                                 Text(cm.text, style = MaterialTheme.typography.bodyMedium)
                             }
-                            if (cm.nick.equals(state.myNick, ignoreCase = true)) {
-                                Text(
-                                    "Удалить",
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.align(Alignment.End).clickable { viewModel.deleteComment(cm.id) }.padding(top = 4.dp),
-                                )
+                            Row(Modifier.align(Alignment.End).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Ответить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable {
+                                    val tag = "@${cm.nick} "
+                                    if (!commentInput.contains(tag)) commentInput = tag + commentInput
+                                })
+                                if (!cm.nick.equals(state.myNick, ignoreCase = true)) {
+                                    Text("Профиль", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { commentProfileNick = cm.nick })
+                                } else {
+                                    Text("Удалить", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { viewModel.deleteComment(cm.id) })
+                                }
                             }
                         }
                     }
                 }
                 item {
                     if (state.isLoggedIn) {
-                        var commentInput by remember { mutableStateOf("") }
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,

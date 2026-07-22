@@ -339,6 +339,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         TitleScreen(
                             onBack = { navController.popBackStack() },
                             onPlay = { navController.navigate("player") },
+                            onOpenDm = { nick -> navController.navigate("dm/$nick") },
                         )
                     }
                 }

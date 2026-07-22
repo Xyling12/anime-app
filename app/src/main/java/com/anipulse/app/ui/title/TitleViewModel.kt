@@ -52,6 +52,9 @@ class TitleViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
+    val socialGateway: com.anipulse.app.data.GatewayApi get() = gateway
+    fun currentToken(): String? = settings.authToken
+
     val animeId: Long = checkNotNull(savedStateHandle["animeId"])
 
     private val _state = MutableStateFlow(TitleState())
