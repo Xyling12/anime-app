@@ -37,6 +37,8 @@ data class TitleState(
     val comments: List<com.anipulse.app.data.ChatMessage> = emptyList(),
     val isLoggedIn: Boolean = false,
     val commentSending: Boolean = false,
+    val myNick: String? = null,
+    val episodeNotifyEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -49,6 +51,9 @@ class TitleViewModel @Inject constructor(
     private val settings: com.anipulse.app.data.SettingsStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    val socialGateway: com.anipulse.app.data.GatewayApi get() = gateway
+    fun currentToken(): String? = settings.authToken
 
     val animeId: Long = checkNotNull(savedStateHandle["animeId"])
 
@@ -68,7 +73,7 @@ class TitleViewModel @Inject constructor(
                 _state.update { it.copy(isFavorite = fav != null, status = fav?.status ?: "none") }
             }
         }
-        _state.update { it.copy(isLoggedIn = settings.authToken != null) }
+        _state.update { it.copy(isLoggedIn = settings.authToken != null, myNick = settings.authNick, episodeNotifyEnabled = animeId.toString() in settings.episodeNotifyIds) }
         loadSocial()
     }
 
@@ -88,10 +93,29 @@ class TitleViewModel @Inject constructor(
     fun rate(score: Int) {
         val b = bearer() ?: return
         viewModelScope.launch {
-            runCatching { gateway.sendRating(b, com.anipulse.app.data.RatingRequest(animeId, score)) }
+            runCatching {
+                if (_state.value.myRating == score) gateway.deleteRating(b, animeId)
+                else gateway.sendRating(b, com.anipulse.app.data.RatingRequest(animeId, score))
+            }
                 .onSuccess { r ->
                     _state.update { it.copy(ratingAvg = r.avg, ratingCount = r.count, myRating = r.my) }
                 }
+        }
+    }
+
+    fun deleteComment(id: Long) {
+        val b = bearer() ?: return
+        viewModelScope.launch {
+            runCatching { gateway.deleteComment(b, animeId.toString(), id) }
+                .onSuccess { _state.update { st -> st.copy(comments = st.comments.filterNot { it.id == id }) } }
+        }
+    }
+
+    fun toggleEpisodeNotification() {
+        val enabled = settings.toggleEpisodeNotify(animeId)
+        _state.update { it.copy(episodeNotifyEnabled = enabled) }
+        if (enabled && !_state.value.isFavorite) {
+            viewModelScope.launch { favoriteDao.upsert(makeFavorite("planned")) }
         }
     }
 

@@ -45,7 +45,7 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         runCatching { checkServerNotifications(ctx, settings, prefs) }
         runCatching { checkChatAll(ctx, settings, prefs) }
-        runCatching { checkNewEpisodes(ctx, prefs) }
+        runCatching { checkNewEpisodes(ctx, settings, prefs) }
         return Result.success()
     }
 
@@ -93,30 +93,25 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     // --- Новые серии тайтлов из «Моё» ---
-    private suspend fun checkNewEpisodes(ctx: Context, prefs: android.content.SharedPreferences) {
-        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, "anipulse.db").build()
-        try {
-            val favorites = db.favoriteDao().allOnce().take(30)
-            if (favorites.isEmpty()) return
+    private suspend fun checkNewEpisodes(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
+        val subscribed = settings.episodeNotifyIds.take(30)
+        if (subscribed.isEmpty()) return
             val state = JSONObject(prefs.getString("episodes_state", "{}") ?: "{}")
             var changed = false
-            for (f in favorites) {
-                val body = httpGet("${Api.SHIKIMORI}api/animes/${f.animeId}", null) ?: continue
+            for (animeId in subscribed) {
+                val body = httpGet("${Api.SHIKIMORI}api/animes/$animeId", null) ?: continue
                 val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
                 val aired = o.optInt("episodes_aired", 0)
                 val status = o.optString("status")
-                val key = f.animeId.toString()
+                val key = animeId
                 val prev = state.optInt(key, -1)
                 if (prev in 0 until aired && status == "ongoing") {
-                    val title = o.optString("russian").ifBlank { f.title }
-                    notify(ctx, "episodes", f.animeId.toInt(), "Вышла серия $aired", title)
+                    val title = o.optString("russian").ifBlank { o.optString("name") }
+                    notify(ctx, "episodes", animeId.toInt(), "Вышла серия $aired", title)
                 }
                 if (prev != aired) { state.put(key, aired); changed = true }
             }
             if (changed) prefs.edit().putString("episodes_state", state.toString()).apply()
-        } finally {
-            db.close()
-        }
     }
 
     private fun httpGet(url: String, token: String?): String? {
@@ -134,9 +129,10 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     private fun notify(ctx: Context, channel: String, id: Int, title: String, text: String) {
+        val channelId = if (channel == "chat") channel else "${channel}_pulse"
         val intent = Intent(ctx, MainActivity::class.java)
         val pi = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        val n = NotificationCompat.Builder(ctx, channel)
+        val n = NotificationCompat.Builder(ctx, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(text)
@@ -156,16 +152,16 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val pulseSound = android.net.Uri.parse("android.resource://${ctx.packageName}/${com.anipulse.app.R.raw.anipulse_pulse}")
             listOf(
-                NotificationChannel("dm", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("mentions", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("social", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
-                NotificationChannel("episodes", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel("dm_pulse", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel("mentions_pulse", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel("social_pulse", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel("episodes_pulse", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
                 // «Все» — намеренно тихий канал (много сообщений), звук явно выключен.
                 NotificationChannel("chat", "Общий чат (режим «Все»)", NotificationManager.IMPORTANCE_LOW),
             ).forEach { ch ->
-                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(defaultSound, soundAttrs)
+                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(pulseSound, soundAttrs)
                 nm.createNotificationChannel(ch)
             }
         }

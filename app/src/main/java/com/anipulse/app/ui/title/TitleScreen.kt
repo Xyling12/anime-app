@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -26,6 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -60,9 +64,21 @@ import com.anipulse.app.data.shikimori.posterOf
 fun TitleScreen(
     onBack: () -> Unit,
     onPlay: () -> Unit,
+    onOpenDm: (String) -> Unit = {},
     viewModel: TitleViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    var commentInput by remember { mutableStateOf("") }
+    var commentProfileNick by remember { mutableStateOf<String?>(null) }
+    commentProfileNick?.let { nick ->
+        com.anipulse.app.ui.common.UserCardSheet(
+            nick = nick,
+            gateway = viewModel.socialGateway,
+            token = viewModel.currentToken(),
+            onDismiss = { commentProfileNick = null },
+            onWrite = { target -> commentProfileNick = null; onOpenDm(target) },
+        )
+    }
 
     // Диалог «Сначала / Продолжить» для начатой серии
     var resumeDialogEp by remember { mutableStateOf<Int?>(null) }
@@ -103,7 +119,7 @@ fun TitleScreen(
             val d = state.details
             val displayTitle = d?.russian?.ifBlank { null } ?: d?.name
 
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize().imePadding()) {
                 item {
                     Box(Modifier.fillMaxWidth().height(340.dp)) {
                         AsyncImage(
@@ -134,6 +150,18 @@ fun TitleScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                         }
                         if (d != null) {
+                            if (d.status == "ongoing") {
+                                IconButton(
+                                    onClick = viewModel::toggleEpisodeNotification,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 60.dp).clip(CircleShape).background(Color(0x66000000)),
+                                ) {
+                                    Icon(
+                                        if (state.episodeNotifyEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsNone,
+                                        contentDescription = "Уведомлять о новых сериях",
+                                        tint = if (state.episodeNotifyEnabled) Color(0xFFFF4D8D) else Color.White,
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = viewModel::toggleFavorite,
                                 modifier = Modifier
@@ -152,7 +180,7 @@ fun TitleScreen(
                                 Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text(
                                     listOfNotNull(
-                                        d.score?.takeIf { it != "0.0" }?.let { "★ $it" },
+                                        d.score?.takeIf { it != "0.0" }?.let { "Shikimori ★ $it" },
                                         d.airedOn?.take(4),
                                         d.episodes?.let { "Эп: $it" },
                                         d.kind?.uppercase(),
@@ -255,24 +283,24 @@ fun TitleScreen(
                 // Моя оценка (1–10) + рейтинг AniPulse
                 item {
                     Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            "Моя оценка",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        state.ratingAvg?.let { avg ->
-                            Text(
-                                "♥ $avg AniPulse · ${state.ratingCount}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Рейтинг Shikimori", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("★ ${d.score?.takeIf { it.toDoubleOrNull()?.let { value -> value > 0.0 } == true } ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text("Рейтинг AniPulse", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("♥ ${state.ratingAvg ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)
+                                Text("${state.ratingCount} оценок", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
+                    Text("Моя оценка", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     if (state.isLoggedIn) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -424,20 +452,26 @@ fun TitleScreen(
                     // Спойлеры скрыты до тапа
                     var revealed by remember(cm.id) { mutableStateOf(false) }
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
+                        Box(Modifier.clickable { commentProfileNick = cm.nick }) {
+                            com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
+                        }
                         Column(
                             Modifier
                                 .padding(start = 10.dp)
                                 .clip(RoundedCornerShape(4.dp, 14.dp, 14.dp, 14.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                                .weight(1f),
+                                .widthIn(max = 290.dp),
                         ) {
                             Text(
                                 cm.nick,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable {
+                                    val tag = "@${cm.nick} "
+                                    if (!commentInput.contains(tag)) commentInput = tag + commentInput
+                                },
                             )
                             if (cm.spoiler && !revealed) {
                                 Text(
@@ -453,12 +487,22 @@ fun TitleScreen(
                             } else {
                                 Text(cm.text, style = MaterialTheme.typography.bodyMedium)
                             }
+                            Row(Modifier.align(Alignment.End).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Ответить", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable {
+                                    val tag = "@${cm.nick} "
+                                    if (!commentInput.contains(tag)) commentInput = tag + commentInput
+                                })
+                                if (!cm.nick.equals(state.myNick, ignoreCase = true)) {
+                                    Text("Профиль", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { commentProfileNick = cm.nick })
+                                } else {
+                                    Text("Удалить", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { viewModel.deleteComment(cm.id) })
+                                }
+                            }
                         }
                     }
                 }
                 item {
                     if (state.isLoggedIn) {
-                        var commentInput by remember { mutableStateOf("") }
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -468,6 +512,16 @@ fun TitleScreen(
                                 onValueChange = { commentInput = it },
                                 modifier = Modifier.weight(1f),
                                 placeholder = { Text("Написать комментарий…") },
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    cursorColor = Color(0xFFFF4D8D),
+                                    focusedContainerColor = Color(0xFF15151F),
+                                    unfocusedContainerColor = Color(0xFF15151F),
+                                    focusedBorderColor = Color(0xFFFF4D8D),
+                                    unfocusedBorderColor = Color(0xFF343442),
+                                ),
                                 shape = RoundedCornerShape(20.dp),
                                 maxLines = 3,
                             )

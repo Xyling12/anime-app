@@ -203,6 +203,14 @@ fun ChatScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.End),
                         )
+                        if (mine) {
+                            Text(
+                                "Удалить",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.align(Alignment.End).clickable { viewModel.deleteMessage(m.id) }.padding(top = 2.dp),
+                            )
+                        }
                     }
                     // Меню по длинному тапу
                     androidx.compose.material3.DropdownMenu(
@@ -234,12 +242,12 @@ fun ChatScreen(
                                 onClick = { cardNick = m.nick; menuForId = null },
                             )
                         }
-                        if (viewModel.isAdmin()) {
+                        if (mine || viewModel.isAdmin()) {
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Удалить 🛡", color = MaterialTheme.colorScheme.error) },
                                 onClick = { viewModel.deleteMessage(m.id); menuForId = null },
                             )
-                            if (!mine) {
+                            if (!mine && viewModel.isAdmin()) {
                                 androidx.compose.material3.DropdownMenuItem(
                                     text = { Text("Бан 24ч 🛡", color = MaterialTheme.colorScheme.error) },
                                     onClick = { viewModel.banUser(m.nick, 24); menuForId = null },
@@ -372,4 +380,3 @@ fun ChatScreen(
         )
     }
 }
-

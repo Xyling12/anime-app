@@ -238,6 +238,13 @@ interface GatewayApi {
         @retrofit2.http.Body body: CommentRequest,
     ): ChatMessage
 
+    @retrofit2.http.DELETE("comments")
+    suspend fun deleteComment(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Query("animeId") animeId: String,
+        @retrofit2.http.Query("id") id: Long,
+    ): kotlinx.serialization.json.JsonObject
+
     /** Батч: ids="16498,1735" → { "16498": {avg,count}, ... } — только тайтлы с оценками. */
     @GET("ratings")
     suspend fun ratings(@retrofit2.http.Query("ids") ids: String): Map<String, RatingBrief>
@@ -253,6 +260,18 @@ interface GatewayApi {
         @retrofit2.http.Header("Authorization") bearer: String,
         @retrofit2.http.Body body: RatingRequest,
     ): RatingResponse
+
+    @retrofit2.http.DELETE("rating")
+    suspend fun deleteRating(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Query("animeId") animeId: Long,
+    ): RatingResponse
+
+    @retrofit2.http.DELETE("chat")
+    suspend fun deleteOwnChat(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Query("id") id: Long,
+    ): kotlinx.serialization.json.JsonObject
 
     @GET("dm/list")
     suspend fun dmList(@retrofit2.http.Header("Authorization") bearer: String): List<DmThread>

@@ -23,6 +23,7 @@ data class HomeState(
     val forYou: List<ShikiAnime> = emptyList(),    // персональные рекомендации
     val popular: List<ShikiAnime> = emptyList(),   // популярное всех времён
     val topRated: List<ShikiAnime> = emptyList(),  // высший рейтинг
+    val pulseRatings: Map<Long, Double> = emptyMap(),
     val isLoading: Boolean = true,
 )
 
@@ -30,6 +31,7 @@ data class HomeState(
 class HomeViewModel @Inject constructor(
     private val progressDao: ProgressDao,
     private val repo: AnimeRepository,
+    private val gateway: com.anipulse.app.data.GatewayApi,
 ) : ViewModel() {
 
     /** Лента «Продолжить просмотр»: недосмотренные тайтлы, свежие сверху. */
@@ -47,14 +49,17 @@ class HomeViewModel @Inject constructor(
             val popular = async { runCatching { repo.catalog(page = 1, order = "popularity") }.getOrDefault(emptyList()) }
             val ranked = async { runCatching { repo.catalog(page = 1, order = "ranked") }.getOrDefault(emptyList()) }
             val ong = ongoing.await()
+            val popularItems = popular.await()
+            val rankedItems = ranked.await()
             _state.update {
                 it.copy(
                     banner = ong.shuffled().take(8),
-                    popular = popular.await(),
-                    topRated = ranked.await(),
+                    popular = popularItems,
+                    topRated = rankedItems,
                     isLoading = false,
                 )
             }
+            loadPulseRatings((ong + popularItems + rankedItems).map { it.id })
             loadRecommendations()
         }
     }
@@ -63,6 +68,17 @@ class HomeViewModel @Inject constructor(
      * «Для вас»: similar-тайтлы Shikimori по последним просмотренным.
      * Кандидат ценнее, если похож сразу на несколько наших тайтлов; просмотренное исключаем.
      */
+    private suspend fun loadPulseRatings(ids: List<Long>) {
+        runCatching { gateway.ratings(ids.distinct().joinToString(",")) }.onSuccess { map ->
+            val ratings = map.mapNotNull { (id, value) ->
+                val animeId = id.toLongOrNull() ?: return@mapNotNull null
+                val avg = value.avg ?: return@mapNotNull null
+                animeId to avg
+            }.toMap()
+            _state.update { it.copy(pulseRatings = it.pulseRatings + ratings) }
+        }
+    }
+
     private suspend fun loadRecommendations() {
         val seeds = runCatching { progressDao.recentAnimeIds(3) }.getOrDefault(emptyList())
         if (seeds.isEmpty()) return
@@ -84,5 +100,6 @@ class HomeViewModel @Inject constructor(
             .map { it.first }
             .take(20)
         _state.update { it.copy(forYou = recs) }
+        loadPulseRatings(recs.map { it.id })
     }
 }

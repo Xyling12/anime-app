@@ -6,7 +6,7 @@
 
     <application
         android:name=".AnimeLibApp"
-        android:label="AniPulse"
+        android:label="AniPulse Beta"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.AnimeLib"
         android:usesCleartextTraffic="false"

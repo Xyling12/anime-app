@@ -92,6 +92,18 @@ class SettingsStore @Inject constructor(
         get() = prefs.getString("chat_notify_mode", "mentions") ?: "mentions"
         set(v) = prefs.edit().putString("chat_notify_mode", v).apply()
 
+    var episodeNotifyIds: Set<String>
+        get() = prefs.getStringSet("episode_notify_ids", emptySet())?.toSet() ?: emptySet()
+        set(v) = prefs.edit().putStringSet("episode_notify_ids", v.toSet()).apply()
+
+    fun toggleEpisodeNotify(animeId: Long): Boolean {
+        val ids = episodeNotifyIds.toMutableSet()
+        val enabled = if (animeId.toString() in ids) { ids.remove(animeId.toString()); false }
+        else { ids.add(animeId.toString()); true }
+        episodeNotifyIds = ids
+        return enabled
+    }
+
     /** Пресет аватара 0–11 (работает и у гостя, у аккаунта синхронизируется с сервером). */
     var avatarId: Int
         get() = prefs.getInt("avatar_id", 0)

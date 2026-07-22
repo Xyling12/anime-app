@@ -2,24 +2,15 @@ package com.anipulse.app.ui.library
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.anipulse.app.ui.common.PillChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,113 +25,53 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.Api
+import com.anipulse.app.ui.common.PillChip
 
 @Composable
-fun LibraryScreen(
-    onTitleClick: (Long) -> Unit,
-    viewModel: LibraryViewModel = hiltViewModel(),
-) {
+fun LibraryScreen(onTitleClick: (Long) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
     val all by viewModel.favorites.collectAsState()
     val filter by viewModel.filter.collectAsState()
-    val items = if (filter == "all") all else all.filter { it.status == filter }
-
-    Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
-        // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
-
+    val filtered = if (filter == "all") all else all.filter { it.status == filter }
+    Column(Modifier.fillMaxSize().padding(top = 8.dp)) {
         Row(
-            Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf(
-                "all" to "Все",
-                "watching" to "Смотрю",
-                "planned" to "В планах",
-                "completed" to "Просмотрено",
-            ).forEach { (key, label) ->
-                PillChip(
-                    selected = filter == key,
-                    onClick = { viewModel.setFilter(key) },
-                    label = label,
-                )
+            listOf("all" to "Все", "watching" to "Смотрю", "planned" to "В планах", "completed" to "Просмотрено").forEach { (key, label) ->
+                PillChip(filter == key, { viewModel.setFilter(key) }, label)
             }
         }
-
-        if (items.isEmpty()) {
+        if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Добавляйте тайтлы сердечком ♡ на странице аниме",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(32.dp),
-                )
+                Text("Здесь появятся сохранённые тайтлы", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 110.dp),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            LazyColumn(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                items(items, key = { it.animeId }) { fav ->
-                    Column(Modifier.clickable { onTitleClick(fav.animeId) }) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(0.66f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                        ) {
+                items(filtered, key = { it.animeId }) { fav ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { onTitleClick(fav.animeId) },
+                        color = Color(0xFF15151F), shape = RoundedCornerShape(15.dp),
+                    ) {
+                        Row(Modifier.height(112.dp), verticalAlignment = Alignment.CenterVertically) {
                             AsyncImage(
-                                model = Api.GATEWAY + "poster/${fav.animeId}",
-                                contentDescription = fav.title,
-                                modifier = Modifier.fillMaxSize(),
+                                Api.GATEWAY + "poster/${fav.animeId}", fav.title,
+                                Modifier.width(86.dp).fillMaxHeight().clip(RoundedCornerShape(topStart = 15.dp, bottomStart = 15.dp)),
                                 contentScale = ContentScale.Crop,
                             )
-                            val statusLabel = when (fav.status) {
-                                "watching" -> "Смотрю"
-                                "planned" -> "В планах"
-                                "completed" -> "Просмотрено ✓"
-                                else -> null
+                            Column(Modifier.weight(1f).padding(12.dp)) {
+                                Text(fav.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.height(7.dp))
+                                val status = when (fav.status) { "watching" -> "Смотрю"; "planned" -> "В планах"; "completed" -> "Просмотрено"; else -> "В Моём" }
+                                Text(status, style = MaterialTheme.typography.labelMedium, color = Color(0xFFFF4D8D))
+                                fav.score?.takeIf { it != "0.0" }?.let {
+                                    Text("Shikimori ★ $it", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD66B))
+                                }
                             }
-                            statusLabel?.let { st ->
-                                Text(
-                                    st,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .fillMaxWidth()
-                                        .background(Color(0xCC000000))
-                                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = when (fav.status) {
-                                        "watching" -> Color(0xFFFF4D8D)
-                                        "completed" -> Color(0xFF66BB6A)
-                                        else -> Color.White
-                                    },
-                                )
-                            }
-                            fav.score?.takeIf { it != "0.0" }?.let { score ->
-                                Text(
-                                    text = score,
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(6.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xCC000000))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFFFD54F),
-                                )
-                            }
+                            IconButton(onClick = { }) { Icon(Icons.Filled.MoreVert, "Дополнительно", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
-                        Text(
-                            fav.title,
-                            Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
                 }
             }

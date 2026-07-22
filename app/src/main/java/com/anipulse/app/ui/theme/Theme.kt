@@ -21,14 +21,14 @@ private val DarkColors = darkColorScheme(
     onSecondary = Color.White,
     secondaryContainer = Color(0xFF47172B),      // выбранные чипы — глубокий розовый
     onSecondaryContainer = Color(0xFFFFB1C8),
-    background = Color(0xFF0C0C12),
-    surface = Color(0xFF14141D),
+    background = Color(0xFF09090F),
+    surface = Color(0xFF15151F),
     surfaceVariant = Color(0xFF1D1D29),
     onBackground = Color(0xFFF2F0F7),
     onSurface = Color(0xFFF2F0F7),
     onSurfaceVariant = Color(0xFF9D9AB0),
-    outline = Color(0xFF3A3A4C),
-    outlineVariant = Color(0xFF2B2B3A),
+    outline = Color(0xFF343442),
+    outlineVariant = Color(0xFF252530),
 )
 
 // Новая светлая тема: чистый минимализм, белый фон, тёмный текст, акценты
@@ -53,7 +53,7 @@ private val LightColors = lightColorScheme(
 
 @Composable
 fun AnimeLibTheme(
-    darkTheme: Boolean = false,
+    darkTheme: Boolean = true,
     // Фирменные цвета AniPulse всегда: динамические системные цвета ломали стиль.
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,

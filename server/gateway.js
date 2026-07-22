@@ -857,6 +857,16 @@ async function handleChat(req, res) {
     notifyMentions(text, user, "chat");
     return jsonRes(res, 200, msg);
   }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить сообщение' });
+    const id = Number((req.url.match(/[?&]id=(\d+)/) || [])[1] || 0);
+    const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
+    const before = chat.messages.length;
+    chat.messages = chat.messages.filter(m => m.id !== id || (m.userId !== user.id && !user.admin));
+    saveJson(CHAT_FILE, chat);
+    return jsonRes(res, 200, { removed: before - chat.messages.length });
+  }
   jsonRes(res, 405, { error: 'method' });
 }
 async function handleComments(req, res) {
@@ -895,6 +905,16 @@ async function handleComments(req, res) {
     saveJson(COMMENTS_FILE, all);
     notifyMentions(text, user, "comment:" + id);
     return jsonRes(res, 200, cm);
+  }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить комментарий' });
+    const id = Number((req.url.match(/[?&]id=(\d+)/) || [])[1] || 0);
+    const all = loadJson(COMMENTS_FILE, {});
+    const list = all[animeId] || [];
+    all[animeId] = list.filter(c => c.id !== id || (c.userId !== user.id && !user.admin));
+    saveJson(COMMENTS_FILE, all);
+    return jsonRes(res, 200, { removed: list.length - all[animeId].length });
   }
   jsonRes(res, 405, { error: 'method' });
 }
@@ -940,6 +960,18 @@ async function handleRating(req, res) {
     saveJson(RATINGS_FILE, all);
     const vals = Object.values(votes);
     return jsonRes(res, 200, { avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10, count: vals.length, my: votes[user.id] });
+  }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить оценку' });
+    if (!animeId) return jsonRes(res, 400, { error: 'animeId required' });
+    const all = loadJson(RATINGS_FILE, {});
+    const votes = all[animeId] || {};
+    delete votes[user.id];
+    all[animeId] = votes;
+    saveJson(RATINGS_FILE, all);
+    const vals = Object.values(votes);
+    return jsonRes(res, 200, { avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 : null, count: vals.length, my: null });
   }
   jsonRes(res, 405, { error: 'method' });
 }
@@ -1034,12 +1066,17 @@ function uniqueNick(db, base) {
 }
 function socialLogin(provider, extId, displayName, res, state) {
   const db = loadUsers();
-  if (state && state.startsWith('link.')) {
-    const userId = verifyToken(state.slice(5));
+  // Источник входа: веб (state 'web'/'web.<...>') → редирект на сайт; иначе deep link Android.
+  let web = false, realState = state || '';
+  if (realState === 'web') { web = true; realState = ''; }
+  else if (realState.startsWith('web.')) { web = true; realState = realState.slice(4); }
+  if (realState && realState.startsWith('link.')) {
+    const userId = verifyToken(realState.slice(5));
     const u = userId && db.users.find(x => x.id === userId);
     if (u) {
       u.linked = u.linked || {}; u.linked[provider] = String(extId); saveUsers(db);
-      res.writeHead(302, { Location: 'anipulse://auth?linked=' + provider }); return res.end();
+      const loc = web ? 'https://anipulsetv.ru/profile?linked=' + provider : 'anipulse://auth?linked=' + provider;
+      res.writeHead(302, { Location: loc }); return res.end();
     }
   }
   let user = db.users.find(u => u.linked && u.linked[provider] === String(extId));
@@ -1055,7 +1092,10 @@ function socialLogin(provider, extId, displayName, res, state) {
     db.users.push(user); saveUsers(db);
   }
   const token = makeToken(user.id);
-  res.writeHead(302, { Location: 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick) });
+  const loc = web
+    ? 'https://anipulsetv.ru/auth/callback?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick)
+    : 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick);
+  res.writeHead(302, { Location: loc });
   res.end();
 }
 // CSRF-защита колбэка Яндекса: клиентский state не проверялся на возврате (login CSRF) —
@@ -1238,6 +1278,17 @@ const server = http.createServer((req, res) => {
   });
 });
 async function route(req, res) {
+  // CORS для веб-клиента (anipulsetv.ru + локальная разработка): браузерные fetch
+  // из веб-версии иначе режутся. Разрешаем только наши источники, не «*».
+  const origin = req.headers['origin'] || '';
+  if (/^https:\/\/(www\.)?anipulsetv\.ru$/.test(origin) || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (req.url === '/privacy') return handlePrivacyPage(res);
   if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
   const dubsM = req.url.match(/^\/alapi\/kodik-dubs\?shikimoriId=(\d+)/);

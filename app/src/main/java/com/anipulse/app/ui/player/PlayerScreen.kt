@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -468,7 +469,7 @@ private fun NativePlayer(
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = 72.dp, end = 16.dp)
+                        .padding(bottom = 128.dp, end = 16.dp)
                         .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
                 ) { Text("Пропустить опенинг ⏭", color = Color.White) }
             }
@@ -502,7 +503,9 @@ private fun NativePlayer(
         // Кнопка «Пропустить повтор» (в начале серии)
         run {
             val sec = positionMs / 1000
-            if (sec in 3L..90L && durationMs > 200_000) {
+            val openingStart = state.stream?.opening?.start?.toLong()
+            val beforeOpening = openingStart == null || sec < openingStart
+            if (sec in 3L..15L && beforeOpening && durationMs > 200_000) {
                 TextButton(
                     onClick = { exo.seekTo(exo.currentPosition + 80_000) },
                     modifier = Modifier
@@ -521,6 +524,7 @@ private fun NativePlayer(
                     .fillMaxHeight()
                     .width(340.dp)
                     .background(Color(0xF2101018))
+                    .imePadding()
                     .padding(12.dp)
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
@@ -568,6 +572,15 @@ private fun NativePlayer(
                             modifier = Modifier.weight(1f),
                             placeholder = { Text("Комментарий…", color = Color(0xFF9D9AB0)) },
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color(0xFFFF4D8D),
+                                focusedContainerColor = Color(0xFF15151F),
+                                unfocusedContainerColor = Color(0xFF15151F),
+                                focusedBorderColor = Color(0xFFFF4D8D),
+                                unfocusedBorderColor = Color(0xFF343442),
+                            ),
                             maxLines = 2,
                         )
                         IconButton(
