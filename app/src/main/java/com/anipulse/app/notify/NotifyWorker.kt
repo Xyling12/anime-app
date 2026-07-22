@@ -45,7 +45,7 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
         runCatching { checkServerNotifications(ctx, settings, prefs) }
         runCatching { checkChatAll(ctx, settings, prefs) }
-        runCatching { checkNewEpisodes(ctx, prefs) }
+        runCatching { checkNewEpisodes(ctx, settings, prefs) }
         return Result.success()
     }
 
@@ -93,30 +93,25 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     }
 
     // --- Новые серии тайтлов из «Моё» ---
-    private suspend fun checkNewEpisodes(ctx: Context, prefs: android.content.SharedPreferences) {
-        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, "anipulse.db").build()
-        try {
-            val favorites = db.favoriteDao().allOnce().take(30)
-            if (favorites.isEmpty()) return
+    private suspend fun checkNewEpisodes(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
+        val subscribed = settings.episodeNotifyIds.take(30)
+        if (subscribed.isEmpty()) return
             val state = JSONObject(prefs.getString("episodes_state", "{}") ?: "{}")
             var changed = false
-            for (f in favorites) {
-                val body = httpGet("${Api.SHIKIMORI}api/animes/${f.animeId}", null) ?: continue
+            for (animeId in subscribed) {
+                val body = httpGet("${Api.SHIKIMORI}api/animes/$animeId", null) ?: continue
                 val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
                 val aired = o.optInt("episodes_aired", 0)
                 val status = o.optString("status")
-                val key = f.animeId.toString()
+                val key = animeId
                 val prev = state.optInt(key, -1)
                 if (prev in 0 until aired && status == "ongoing") {
-                    val title = o.optString("russian").ifBlank { f.title }
-                    notify(ctx, "episodes", f.animeId.toInt(), "Вышла серия $aired", title)
+                    val title = o.optString("russian").ifBlank { o.optString("name") }
+                    notify(ctx, "episodes", animeId.toInt(), "Вышла серия $aired", title)
                 }
                 if (prev != aired) { state.put(key, aired); changed = true }
             }
             if (changed) prefs.edit().putString("episodes_state", state.toString()).apply()
-        } finally {
-            db.close()
-        }
     }
 
     private fun httpGet(url: String, token: String?): String? {

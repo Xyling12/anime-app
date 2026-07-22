@@ -203,6 +203,14 @@ fun ChatScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.align(Alignment.End),
                         )
+                        if (mine) {
+                            Text(
+                                "Удалить",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.align(Alignment.End).clickable { viewModel.deleteMessage(m.id) }.padding(top = 2.dp),
+                            )
+                        }
                     }
                     // Меню по длинному тапу
                     androidx.compose.material3.DropdownMenu(

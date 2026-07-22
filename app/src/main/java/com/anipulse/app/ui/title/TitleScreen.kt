@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -135,6 +138,18 @@ fun TitleScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                         }
                         if (d != null) {
+                            if (d.status == "ongoing") {
+                                IconButton(
+                                    onClick = viewModel::toggleEpisodeNotification,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 60.dp).clip(CircleShape).background(Color(0x66000000)),
+                                ) {
+                                    Icon(
+                                        if (state.episodeNotifyEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsNone,
+                                        contentDescription = "Уведомлять о новых сериях",
+                                        tint = if (state.episodeNotifyEnabled) Color(0xFFFF4D8D) else Color.White,
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = viewModel::toggleFavorite,
                                 modifier = Modifier
@@ -432,7 +447,7 @@ fun TitleScreen(
                                 .clip(RoundedCornerShape(4.dp, 14.dp, 14.dp, 14.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                                .weight(1f),
+                                .widthIn(max = 290.dp),
                         ) {
                             Text(
                                 cm.nick,

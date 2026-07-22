@@ -540,6 +540,9 @@ private fun ProfileRedesign(
                 } else {
                     Text("Просмотр и «Моё» работают без входа", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Surface(color = Color(0x33FF4D8D), shape = RoundedCornerShape(6.dp)) {
+                    Text("BETA · В разработке", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFFF4D8D), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 
@@ -578,6 +581,12 @@ private fun ProfileRedesign(
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)
+            Text(
+                "Приложение находится на стадии разработки",
+                modifier = Modifier.padding(start = 40.dp, end = 12.dp, bottom = 10.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         if (state.nick == null) {
             Button(

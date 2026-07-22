@@ -38,6 +38,7 @@ data class TitleState(
     val isLoggedIn: Boolean = false,
     val commentSending: Boolean = false,
     val myNick: String? = null,
+    val episodeNotifyEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -69,7 +70,7 @@ class TitleViewModel @Inject constructor(
                 _state.update { it.copy(isFavorite = fav != null, status = fav?.status ?: "none") }
             }
         }
-        _state.update { it.copy(isLoggedIn = settings.authToken != null, myNick = settings.authNick) }
+        _state.update { it.copy(isLoggedIn = settings.authToken != null, myNick = settings.authNick, episodeNotifyEnabled = animeId.toString() in settings.episodeNotifyIds) }
         loadSocial()
     }
 
@@ -105,6 +106,10 @@ class TitleViewModel @Inject constructor(
             runCatching { gateway.deleteComment(b, animeId.toString(), id) }
                 .onSuccess { _state.update { st -> st.copy(comments = st.comments.filterNot { it.id == id }) } }
         }
+    }
+
+    fun toggleEpisodeNotification() {
+        _state.update { it.copy(episodeNotifyEnabled = settings.toggleEpisodeNotify(animeId)) }
     }
 
     fun postComment(text: String) {
