@@ -469,7 +469,7 @@ private fun NativePlayer(
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = 72.dp, end = 16.dp)
+                        .padding(bottom = 128.dp, end = 16.dp)
                         .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
                 ) { Text("Пропустить опенинг ⏭", color = Color.White) }
             }

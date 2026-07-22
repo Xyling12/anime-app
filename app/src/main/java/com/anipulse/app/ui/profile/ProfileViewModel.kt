@@ -115,6 +115,25 @@ class ProfileViewModel @Inject constructor(
                 settings.authNick = resp.nick
                 settings.authEmail = resp.email
                 _state.update { it.copy(nick = resp.nick, email = resp.email, authBusy = false, authError = null) }
+                runCatching { gateway.me("Bearer ${resp.token}") }.onSuccess { me ->
+                    val resolvedNick = me.nick ?: resp.nick
+                    val resolvedEmail = me.email ?: resp.email
+                    settings.authNick = resolvedNick
+                    settings.authEmail = resolvedEmail
+                    settings.avatarId = me.avatar
+                    settings.authAdmin = me.admin
+                    _state.update {
+                        it.copy(
+                            nick = resolvedNick,
+                            email = resolvedEmail,
+                            linked = me.linked,
+                            avatarId = me.avatar,
+                            emailVerified = me.emailVerified,
+                            authBusy = false,
+                            authError = null,
+                        )
+                    }
+                }
             } else {
                 _state.update { it.copy(authBusy = false, authError = resp.error ?: "Ошибка") }
             }

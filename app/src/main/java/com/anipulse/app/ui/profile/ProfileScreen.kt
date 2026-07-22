@@ -18,6 +18,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.PlayCircleOutline
@@ -569,6 +572,9 @@ private fun ProfileRedesign(
                 openUrl(context, "https://5-42-99-195.sslip.io/privacy")
             })
             ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
+            ReferenceRow(Icons.Outlined.Security, "Правообладателям", onClick = {
+                openUrl(context, "https://5-42-99-195.sslip.io/for-right-holders")
+            })
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)
@@ -598,9 +604,16 @@ private fun AvatarCropDialog(
         Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(22.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Область аватара", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Настройте положение и масштаб", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Перемещайте фото и масштабируйте двумя пальцами", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(
-                    Modifier.fillMaxWidth().height(270.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black),
+                    Modifier.fillMaxWidth().height(290.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, gestureZoom, _ ->
+                                zoom = (zoom * gestureZoom).coerceIn(1f, 4f)
+                                horizontal = (horizontal - pan.x / (size.width * zoom)).coerceIn(0f, 1f)
+                                vertical = (vertical - pan.y / (size.height * zoom)).coerceIn(0f, 1f)
+                            }
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
@@ -614,14 +627,8 @@ private fun AvatarCropDialog(
                             translationY = (.5f - vertical) * 180f * zoom
                         },
                     )
-                    Box(Modifier.fillMaxSize().padding(2.dp).clip(CircleShape).background(Color.Transparent))
+                    Box(Modifier.size(250.dp).clip(CircleShape).border(3.dp, Color.White, CircleShape))
                 }
-                Text("По горизонтали", style = MaterialTheme.typography.labelSmall)
-                Slider(horizontal, { horizontal = it })
-                Text("По вертикали", style = MaterialTheme.typography.labelSmall)
-                Slider(vertical, { vertical = it })
-                Text("Масштаб", style = MaterialTheme.typography.labelSmall)
-                Slider(zoom, { zoom = it }, valueRange = 1f..3f)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
                     Button(
