@@ -454,6 +454,14 @@ fun TitleScreen(
                             } else {
                                 Text(cm.text, style = MaterialTheme.typography.bodyMedium)
                             }
+                            if (cm.nick.equals(state.myNick, ignoreCase = true)) {
+                                Text(
+                                    "Удалить",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.align(Alignment.End).clickable { viewModel.deleteComment(cm.id) }.padding(top = 4.dp),
+                                )
+                            }
                         }
                     }
                 }

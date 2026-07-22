@@ -503,7 +503,9 @@ private fun NativePlayer(
         // Кнопка «Пропустить повтор» (в начале серии)
         run {
             val sec = positionMs / 1000
-            if (sec in 3L..90L && durationMs > 200_000) {
+            val openingStart = state.stream?.opening?.start?.toLong()
+            val beforeOpening = openingStart == null || sec < openingStart
+            if (sec in 3L..15L && beforeOpening && durationMs > 200_000) {
                 TextButton(
                     onClick = { exo.seekTo(exo.currentPosition + 80_000) },
                     modifier = Modifier

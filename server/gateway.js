@@ -857,6 +857,16 @@ async function handleChat(req, res) {
     notifyMentions(text, user, "chat");
     return jsonRes(res, 200, msg);
   }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить сообщение' });
+    const id = Number((req.url.match(/[?&]id=(\d+)/) || [])[1] || 0);
+    const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
+    const before = chat.messages.length;
+    chat.messages = chat.messages.filter(m => m.id !== id || (m.userId !== user.id && !user.admin));
+    saveJson(CHAT_FILE, chat);
+    return jsonRes(res, 200, { removed: before - chat.messages.length });
+  }
   jsonRes(res, 405, { error: 'method' });
 }
 async function handleComments(req, res) {
@@ -895,6 +905,16 @@ async function handleComments(req, res) {
     saveJson(COMMENTS_FILE, all);
     notifyMentions(text, user, "comment:" + id);
     return jsonRes(res, 200, cm);
+  }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить комментарий' });
+    const id = Number((req.url.match(/[?&]id=(\d+)/) || [])[1] || 0);
+    const all = loadJson(COMMENTS_FILE, {});
+    const list = all[animeId] || [];
+    all[animeId] = list.filter(c => c.id !== id || (c.userId !== user.id && !user.admin));
+    saveJson(COMMENTS_FILE, all);
+    return jsonRes(res, 200, { removed: list.length - all[animeId].length });
   }
   jsonRes(res, 405, { error: 'method' });
 }
@@ -940,6 +960,18 @@ async function handleRating(req, res) {
     saveJson(RATINGS_FILE, all);
     const vals = Object.values(votes);
     return jsonRes(res, 200, { avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10, count: vals.length, my: votes[user.id] });
+  }
+  if (req.method === 'DELETE') {
+    const user = authUser(req);
+    if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить оценку' });
+    if (!animeId) return jsonRes(res, 400, { error: 'animeId required' });
+    const all = loadJson(RATINGS_FILE, {});
+    const votes = all[animeId] || {};
+    delete votes[user.id];
+    all[animeId] = votes;
+    saveJson(RATINGS_FILE, all);
+    const vals = Object.values(votes);
+    return jsonRes(res, 200, { avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 : null, count: vals.length, my: null });
   }
   jsonRes(res, 405, { error: 'method' });
 }

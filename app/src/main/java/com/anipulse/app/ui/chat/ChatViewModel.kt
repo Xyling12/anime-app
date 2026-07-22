@@ -42,7 +42,10 @@ class ChatViewModel @Inject constructor(
     fun deleteMessage(id: Long) {
         val token = settings.authToken ?: return
         viewModelScope.launch {
-            runCatching { gateway.adminDeleteChat("Bearer $token", com.anipulse.app.data.AdminDeleteChatRequest(id)) }
+            runCatching {
+                if (settings.authAdmin) gateway.adminDeleteChat("Bearer $token", com.anipulse.app.data.AdminDeleteChatRequest(id))
+                else gateway.deleteOwnChat("Bearer $token", id)
+            }
                 .onSuccess { _state.update { st -> st.copy(messages = st.messages.filter { it.id != id }) } }
         }
     }
