@@ -13,6 +13,9 @@ app/build/
 .kotlin/
 *.apk
 *.aab
+!output/
+output/*
+!output/AniPulse-0.4.3-beta.apk
 
 # IDE
 .idea/
