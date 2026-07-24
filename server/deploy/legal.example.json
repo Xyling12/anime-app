@@ -1,0 +1,7 @@
+{
+  "operatorName": "ФИО физического лица или наименование ИП/юрлица",
+  "operatorAddress": "Почтовый адрес оператора",
+  "operatorInn": "ИНН при наличии",
+  "serverCountry": "Российская Федерация",
+  "contact": "anipulse.noreply@yandex.ru"
+}

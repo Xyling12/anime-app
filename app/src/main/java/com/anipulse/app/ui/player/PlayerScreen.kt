@@ -12,6 +12,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -510,7 +511,9 @@ private fun NativePlayer(
                     onClick = { exo.seekTo(exo.currentPosition + 80_000) },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = 120.dp, end = 16.dp)
+                        // Вертикальный стек: следующая серия 72dp, опенинг 128dp, повтор 184dp.
+                        // Раньше повтор (120dp) физически накладывался на опенинг (128dp).
+                        .padding(bottom = 184.dp, end = 16.dp)
                         .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
                 ) { Text("Пропустить повтор ⏭", color = Color.White) }
             }
@@ -559,6 +562,14 @@ private fun NativePlayer(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(cm.text, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                if (state.isLoggedIn) {
+                                    Text(
+                                        "Пожаловаться",
+                                        color = Color(0xFFFF8AAF),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.clickable { viewModel.reportComment(cm) }.padding(top = 3.dp),
+                                    )
+                                }
                             }
                         }
                     }

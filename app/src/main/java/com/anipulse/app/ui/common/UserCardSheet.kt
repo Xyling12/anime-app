@@ -1,6 +1,7 @@
 package com.anipulse.app.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import com.anipulse.app.data.GatewayApi
 import com.anipulse.app.data.FriendActionRequest
 import com.anipulse.app.data.UserCard
+import com.anipulse.app.data.BlockRequest
+import com.anipulse.app.data.ReportRequest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,11 +63,14 @@ fun UserCardSheet(
     var card by remember { mutableStateOf<UserCard?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var friendState by remember { mutableStateOf<String?>(null) }
+    var blocked by remember { mutableStateOf(false) }
+    var reportOpen by remember { mutableStateOf(false) }
+    var actionMessage by remember { mutableStateOf<String?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(nick) {
         runCatching { gateway.userCard(token?.let { "Bearer $it" }, nick) }
-            .onSuccess { card = it; friendState = it.friendState }
+            .onSuccess { card = it; friendState = it.friendState; blocked = it.blocked }
             .onFailure { error = "Не удалось загрузить профиль" }
     }
 
@@ -175,11 +181,57 @@ fun UserCardSheet(
                                 )
                             }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            gateway.blockUser("Bearer $token", BlockRequest(c.nick, if (blocked) "unblock" else "block"))
+                                        }.onSuccess { blocked = it.blocked; actionMessage = if (it.blocked) "Пользователь заблокирован" else "Блокировка снята" }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) { Text(if (blocked) "Разблокировать" else "Заблокировать", maxLines = 1) }
+                            OutlinedButton(onClick = { reportOpen = true }, modifier = Modifier.weight(1f)) {
+                                Text("Пожаловаться")
+                            }
+                        }
+                        actionMessage?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     Spacer(Modifier.height(20.dp))
                 }
             }
         }
+    }
+    if (reportOpen && token != null) {
+        val reasons = listOf("Оскорбления или травля", "Спам или мошенничество", "Запрещённый контент", "Другое нарушение")
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { reportOpen = false },
+            title = { Text("Причина жалобы") },
+            text = {
+                Column {
+                    reasons.forEach { reason ->
+                        Text(
+                            reason,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                scope.launch {
+                                    runCatching {
+                                        gateway.report("Bearer $token", ReportRequest("profile", nick, nick, reason = reason))
+                                    }.onSuccess { actionMessage = "Жалоба отправлена" }
+                                    reportOpen = false
+                                }
+                            }.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { reportOpen = false }) { Text("Отмена") } },
+        )
     }
 }
 

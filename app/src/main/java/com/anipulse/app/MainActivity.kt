@@ -33,8 +33,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var gateway: GatewayApi
 
     private val scope = MainScope()
-    /** Ссылка `anipulse://auth?token=` может прийти от чужого приложения/страницы —
-     * токен сначала проверяем через /auth/me и просим подтверждение, а не сохраняем вслепую. */
+    /** После обмена одноразового App Link-кода токен дополнительно проверяется через /auth/me
+     * и сохраняется только после явного подтверждения пользователя. */
     private var pendingLogin by mutableStateOf<Pair<String, String>?>(null) // token to nick
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
                             settings.authToken = token
                             settings.authNick = nick
                             settings.authEmail = null
+                            sendBroadcast(Intent(ACTION_AUTH_CHANGED).setPackage(packageName))
                             pendingLogin = null
                             Toast.makeText(this@MainActivity, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
                         }) { Text("Войти") }
@@ -94,15 +95,27 @@ class MainActivity : ComponentActivity() {
         scope.cancel()
     }
 
-    /** Возврат из OAuth-браузера: anipulse://auth?token=.. или ?linked=vk */
+    /** Возврат только по проверенной Android App Link. В URL находится одноразовый код, не bearer-токен. */
     private fun handleAuthDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme != "anipulse" || uri.host != "auth") return
-        val token = uri.getQueryParameter("token")
+        if (uri.scheme != "https" || uri.host != "anipulsetv.ru" || uri.path != "/auth/android-callback") return
+        val code = uri.getQueryParameter("code")
         val linked = uri.getQueryParameter("linked")
         when {
-            token != null -> validateAndPromptLogin(token)
+            !code.isNullOrBlank() -> exchangeAndPromptLogin(code)
             linked != null -> Toast.makeText(this, "Сервис привязан: $linked", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exchangeAndPromptLogin(code: String) {
+        if (code.length !in 32..128) return
+        scope.launch {
+            val response = runCatching {
+                gateway.exchangeOAuthCode(com.anipulse.app.data.OAuthCodeRequest(code))
+            }.getOrNull()
+            val token = response?.token
+            if (token != null) validateAndPromptLogin(token)
+            else Toast.makeText(this@MainActivity, "Ссылка входа уже использована или устарела", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -116,5 +129,9 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, "Не удалось войти — ссылка недействительна", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    companion object {
+        const val ACTION_AUTH_CHANGED = "com.anipulse.app.AUTH_CHANGED"
     }
 }

@@ -58,6 +58,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun reportMessage(message: ChatMessage) {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching {
+                gateway.report(
+                    "Bearer $token",
+                    com.anipulse.app.data.ReportRequest(
+                        type = "chat", targetId = message.id.toString(), targetNick = message.nick,
+                        reason = "Нарушение правил общего чата",
+                    ),
+                )
+            }.onSuccess { _state.update { it.copy(error = "Жалоба отправлена модерации") } }
+        }
+    }
+
+    fun blockUser(nick: String) {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching { gateway.blockUser("Bearer $token", com.anipulse.app.data.BlockRequest(nick)) }
+                .onSuccess {
+                    _state.update { state ->
+                        state.copy(messages = state.messages.filterNot { it.nick.equals(nick, ignoreCase = true) }, error = "Пользователь заблокирован")
+                    }
+                }
+        }
+    }
+
     private val _state = MutableStateFlow(
         ChatState(isLoggedIn = settings.authToken != null, myNick = settings.authNick)
     )
@@ -70,7 +97,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             while (true) {
                 val after = _state.value.messages.lastOrNull()?.id ?: 0
-                runCatching { gateway.chat(after) }.onSuccess { fresh ->
+                runCatching { gateway.chat(after, settings.authToken?.let { "Bearer $it" }) }.onSuccess { fresh ->
                     if (fresh.isNotEmpty()) {
                         _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
                         // Звук — только на реально новые сообщения (не на подгрузку истории при входе) и не на свои.

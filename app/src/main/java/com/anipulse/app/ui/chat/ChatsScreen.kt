@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,11 +24,14 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Report
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +60,8 @@ class ChatsViewModel @Inject constructor(
     /** Бейджи непрочитанных: ЛС и уведомления. */
     val dmUnread = kotlinx.coroutines.flow.MutableStateFlow(0)
     val notifUnread = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val moderationReports = kotlinx.coroutines.flow.MutableStateFlow<List<com.anipulse.app.data.ModerationReport>>(emptyList())
+    val moderationError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     init {
         viewModelScope.launch {
@@ -65,8 +73,33 @@ class ChatsViewModel @Inject constructor(
                     notifUnread.value = runCatching {
                         gateway.notifications("Bearer $t").count { !it.read }
                     }.getOrDefault(notifUnread.value)
+                    if (settings.authAdmin) {
+                        moderationReports.value = runCatching {
+                            gateway.adminReports("Bearer $t")
+                        }.getOrDefault(moderationReports.value)
+                    }
                 }
                 kotlinx.coroutines.delay(8000)
+            }
+        }
+    }
+
+    fun resolveReport(id: Long, accepted: Boolean) {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching {
+                gateway.resolveAdminReport(
+                    "Bearer $token",
+                    com.anipulse.app.data.ResolveReportRequest(
+                        id = id,
+                        status = if (accepted) "resolved" else "rejected",
+                    ),
+                )
+            }.onSuccess {
+                moderationReports.value = moderationReports.value.filterNot { it.id == id }
+                moderationError.value = null
+            }.onFailure {
+                moderationError.value = "Не удалось сохранить решение"
             }
         }
     }
@@ -89,6 +122,47 @@ fun ChatsScreen(
     var notifyMode by remember { mutableStateOf(viewModel.settings.chatNotifyMode) }
     val dmUnread by viewModel.dmUnread.collectAsState()
     val notifUnread by viewModel.notifUnread.collectAsState()
+    val reports by viewModel.moderationReports.collectAsState()
+    val moderationError by viewModel.moderationError.collectAsState()
+    var reportQueueOpen by remember { mutableStateOf(false) }
+
+    if (reportQueueOpen) {
+        AlertDialog(
+            onDismissRequest = { reportQueueOpen = false },
+            title = { Text("Очередь жалоб · ${reports.size}") },
+            text = {
+                if (reports.isEmpty()) {
+                    Text(moderationError ?: "Открытых жалоб нет")
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 440.dp)) {
+                        items(reports, key = { it.id }) { report ->
+                            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                Text(
+                                    "${report.reason} · ${report.type}",
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    listOfNotNull(
+                                        report.targetNick.takeIf { it.isNotBlank() },
+                                        report.animeId.takeIf { it.isNotBlank() }?.let { "тайтл $it" },
+                                        "жалоба от ${report.reporterNick}",
+                                    ).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (report.details.isNotBlank()) Text(report.details, style = MaterialTheme.typography.bodySmall)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = { viewModel.resolveReport(report.id, false) }) { Text("Отклонить") }
+                                    TextButton(onClick = { viewModel.resolveReport(report.id, true) }) { Text("Обработано") }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { reportQueueOpen = false }) { Text("Закрыть") } },
+        )
+    }
 
     Column(Modifier.fillMaxSize().topSafePadding()) {
         Row(
@@ -127,6 +201,15 @@ fun ChatsScreen(
             onClick = onOpenNotifications,
             badge = notifUnread,
         )
+        if (viewModel.settings.authAdmin) {
+            ChatEntry(
+                icon = { Icon(Icons.Filled.Report, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Очередь жалоб",
+                subtitle = "Проверка сообщений, комментариев и профилей",
+                onClick = { reportQueueOpen = true },
+                badge = reports.size,
+            )
+        }
 
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

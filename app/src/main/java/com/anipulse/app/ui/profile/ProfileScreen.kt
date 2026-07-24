@@ -81,6 +81,23 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
+    val authContext = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(authContext) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                viewModel.syncFromSettings()
+                viewModel.refreshMe()
+            }
+        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            authContext,
+            receiver,
+            android.content.IntentFilter(com.anipulse.app.MainActivity.ACTION_AUTH_CHANGED),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        onDispose { authContext.unregisterReceiver(receiver) }
+    }
+
     // После возврата из OAuth-браузера подтягиваем аккаунт
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
@@ -344,14 +361,14 @@ fun ProfileScreen(
                 SocialButton(
                     Modifier.weight(1f).then(
                         if (yandexLinked) Modifier // уже привязан — повторная привязка не нужна
-                        else Modifier.clickable { viewModel.currentToken()?.let { openOAuth(ctx, "yandex", it) } }
+                        else Modifier.clickable { viewModel.createOAuthLinkCode { openOAuth(ctx, "yandex", it) } }
                     ),
                     "Яндекс", badge = "Я", badgeColor = Color(0xFFFC3F1D), linked = yandexLinked,
                 )
                 SocialButton(
                     Modifier.weight(1f).then(
                         if (vkLinked) Modifier
-                        else Modifier.clickable { viewModel.currentToken()?.let { openOAuth(ctx, "vk", it) } }
+                        else Modifier.clickable { viewModel.createOAuthLinkCode { openOAuth(ctx, "vk", it) } }
                     ),
                     "VK", badge = "VK", badgeColor = Color(0xFF0077FF), linked = vkLinked,
                 )
@@ -433,6 +450,7 @@ private fun ProfileRedesign(
     var authMode by remember { mutableStateOf<String?>(null) }
     var playerExpanded by remember { mutableStateOf(false) }
     var profileDialog by remember { mutableStateOf<String?>(null) }
+    var deleteAccountConfirm by remember { mutableStateOf(false) }
     var avatarDialog by remember { mutableStateOf(false) }
     var cropBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -500,10 +518,26 @@ private fun ProfileRedesign(
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         shape = RoundedCornerShape(12.dp),
                     ) { Text("Выйти из аккаунта") }
+                    TextButton(onClick = { profileDialog = null; deleteAccountConfirm = true }) {
+                        Text("Удалить аккаунт и данные", color = MaterialTheme.colorScheme.error)
+                    }
                     TextButton(onClick = { profileDialog = null }) { Text("Отмена") }
                 }
             }
         }
+    }
+    if (deleteAccountConfirm) {
+        AlertDialog(
+            onDismissRequest = { deleteAccountConfirm = false },
+            title = { Text("Удалить аккаунт?") },
+            text = { Text("Будут удалены профиль, аватар, сообщения, комментарии, оценки и связи с друзьями. Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.deleteAccount(); deleteAccountConfirm = false }) {
+                    Text("Удалить навсегда", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteAccountConfirm = false }) { Text("Отмена") } },
+        )
     }
     profileDialog?.takeIf { it != "account" }?.let { dialog ->
         AlertDialog(
@@ -567,16 +601,30 @@ private fun ProfileRedesign(
                     .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
                 context.startActivity(intent)
             })
-            ReferenceRow(Icons.Outlined.DarkMode, "Тема приложения", if (isDarkTheme) "Тёмная" else "Светлая", onThemeToggle)
+            ReferenceRow(Icons.Outlined.DarkMode, "Светлая тема", "В разработке")
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Person, "Аккаунт", onClick = { if (state.nick == null) authMode = "login" else profileDialog = "account" })
+            if (state.nick != null) {
+                if ("yandex" !in state.linked) ReferenceRow(Icons.Outlined.Person, "Привязать Яндекс", onClick = {
+                    viewModel.createOAuthLinkCode { openOAuth(context, "yandex", it) }
+                })
+                if ("vk" !in state.linked) ReferenceRow(Icons.Outlined.Person, "Привязать VK", onClick = {
+                    viewModel.createOAuthLinkCode { openOAuth(context, "vk", it) }
+                })
+            }
             ReferenceRow(Icons.Outlined.Security, "Конфиденциальность", onClick = {
-                openUrl(context, "https://5-42-99-195.sslip.io/privacy")
+                openUrl(context, "https://anipulsetv.ru/privacy")
+            })
+            ReferenceRow(Icons.Outlined.Info, "Пользовательское соглашение", onClick = {
+                openUrl(context, "https://anipulsetv.ru/terms")
+            })
+            ReferenceRow(Icons.Outlined.Security, "Правила сообщества", onClick = {
+                openUrl(context, "https://anipulsetv.ru/community-rules")
             })
             ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
             ReferenceRow(Icons.Outlined.Security, "Правообладателям", onClick = {
-                openUrl(context, "https://5-42-99-195.sslip.io/for-right-holders")
+                openUrl(context, "https://anipulsetv.ru/for-right-holders")
             })
         }
         ReferenceGroup {
@@ -751,13 +799,22 @@ private fun BugReportDialog(
     )
 }
 
-/** Открыть OAuth-вход в браузере; linkToken != null → режим привязки к текущему аккаунту. */
+/** Открыть OAuth-вход; linkCode — одноразовый код, bearer-токен в URL не передаётся. */
 private fun openUrl(ctx: android.content.Context, url: String) {
     ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
 }
 
-private fun openOAuth(ctx: android.content.Context, provider: String, linkToken: String?) {
-    val state = if (linkToken != null) "link.$linkToken" else ""
+private fun openOAuth(
+    ctx: android.content.Context,
+    provider: String,
+    linkCode: String?,
+    legalAccepted: Boolean = false,
+) {
+    val state = when {
+        linkCode != null -> "link.$linkCode"
+        legalAccepted -> "consent.2026-07-22"
+        else -> ""
+    }
     val uri = android.net.Uri.parse(
         com.anipulse.app.data.Api.GATEWAY + "auth/$provider" + if (state.isNotEmpty()) "?state=" + android.net.Uri.encode(state) else ""
     )
@@ -782,6 +839,8 @@ private fun AuthDialog(
     var pw by remember { mutableStateOf("") }
     var pw2 by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    var acceptedTerms by remember { mutableStateOf(false) }
+    var privacyConsent by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf(mode) } // "login" | "register" | "forgot"
     val isRegister = step == "register"
     val isForgot = step == "forgot"
@@ -841,6 +900,30 @@ private fun AuthDialog(
                         value = pw2, onValueChange = { pw2 = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Подтверждение пароля") }, singleLine = true, shape = RoundedCornerShape(12.dp),
                         visualTransformation = PasswordVisualTransformation(),
                     )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = acceptedTerms,
+                            onCheckedChange = { acceptedTerms = it },
+                        )
+                        Text(
+                            "Принимаю пользовательское соглашение и правила сообщества",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { openUrl(context, "https://anipulsetv.ru/terms") },
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = privacyConsent,
+                            onCheckedChange = { privacyConsent = it },
+                        )
+                        Text(
+                            "Отдельно соглашаюсь на обработку персональных данных",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { openUrl(context, "https://anipulsetv.ru/personal-data-consent") },
+                        )
+                    }
                 }
                 if (step == "login") {
                     Text(
@@ -849,6 +932,29 @@ private fun AuthDialog(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.clickable { step = "forgot"; pw = "" },
                     )
+                    Text(
+                        "Для входа через VK/Яндекс подтвердите документы ниже",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
+                        Text(
+                            "Принимаю пользовательское соглашение",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { openUrl(context, "https://anipulsetv.ru/terms") },
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = privacyConsent, onCheckedChange = { privacyConsent = it })
+                        Text(
+                            "Соглашаюсь на обработку персональных данных",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { openUrl(context, "https://anipulsetv.ru/personal-data-consent") },
+                        )
+                    }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (busy) {
@@ -858,7 +964,7 @@ private fun AuthDialog(
                     }
                 }
                 Button(
-                enabled = !busy,
+                enabled = !busy && (isForgot || (acceptedTerms && privacyConsent)),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
@@ -874,8 +980,17 @@ private fun AuthDialog(
                 if (!isForgot) {
                     Text("или войти через", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SocialButton(Modifier.weight(1f).clickable { openOAuth(context, "yandex", null) }, "Яндекс", "Я", Color(0xFFFC3F1D))
-                        SocialButton(Modifier.weight(1f).clickable { openOAuth(context, "vk", null) }, "VK", "VK", Color(0xFF0077FF))
+                        val socialEnabled = acceptedTerms && privacyConsent
+                        SocialButton(
+                            Modifier.weight(1f).clickable(enabled = socialEnabled) {
+                                openOAuth(context, "yandex", null, legalAccepted = acceptedTerms && privacyConsent)
+                            }, "Яндекс", "Я", Color(0xFFFC3F1D)
+                        )
+                        SocialButton(
+                            Modifier.weight(1f).clickable(enabled = socialEnabled) {
+                                openOAuth(context, "vk", null, legalAccepted = acceptedTerms && privacyConsent)
+                            }, "VK", "VK", Color(0xFF0077FF)
+                        )
                     }
                 }
                 TextButton(onClick = onDismiss) { Text("Отмена") }

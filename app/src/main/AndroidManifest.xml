@@ -11,6 +11,7 @@
         android:theme="@style/Theme.AnimeLib"
         android:usesCleartextTraffic="false"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true">
 
         <activity
@@ -21,16 +22,19 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:supportsPictureInPicture="true"
             android:launchMode="singleTask">
-            <intent-filter>
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Возврат из OAuth (браузер → приложение): anipulse://auth?token=... -->
+            <!-- Возврат OAuth через проверенную HTTPS App Link с одноразовым кодом. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="anipulse" android:host="auth" />
+                <data
+                    android:scheme="https"
+                    android:host="anipulsetv.ru"
+                    android:pathPrefix="/auth/android-callback" />
             </intent-filter>
         </activity>
     </application>

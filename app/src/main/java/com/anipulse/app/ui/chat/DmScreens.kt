@@ -31,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -248,6 +249,32 @@ class DmChatViewModel @Inject constructor(
                 }
         }
     }
+
+    fun reportConversation() {
+        val t = token ?: return
+        val target = _state.value.messages.lastOrNull { it.from != _state.value.myNick }
+        viewModelScope.launch {
+            runCatching {
+                gateway.report(
+                    "Bearer $t",
+                    com.anipulse.app.data.ReportRequest(
+                        type = if (target == null) "profile" else "dm",
+                        targetId = target?.id?.toString() ?: withNick,
+                        targetNick = withNick,
+                        reason = "Нарушение правил в личных сообщениях",
+                    ),
+                )
+            }.onSuccess { _state.update { it.copy(error = "Жалоба отправлена модерации") } }
+        }
+    }
+
+    fun blockUser() {
+        val t = token ?: return
+        viewModelScope.launch {
+            runCatching { gateway.blockUser("Bearer $t", com.anipulse.app.data.BlockRequest(withNick)) }
+                .onSuccess { _state.update { it.copy(messages = emptyList(), error = "Пользователь заблокирован") } }
+        }
+    }
 }
 
 @Composable
@@ -272,6 +299,12 @@ fun DmChatScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
             }
             Text(state.withNick, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = viewModel::reportConversation) { Text("Жалоба", color = MaterialTheme.colorScheme.error) }
+            TextButton(onClick = viewModel::blockUser) { Text("Блок", color = MaterialTheme.colorScheme.error) }
+        }
+        state.error?.let {
+            Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         LazyColumn(
             state = listState,

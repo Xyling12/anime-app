@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -283,20 +284,21 @@ fun TitleScreen(
                 // Моя оценка (1–10) + рейтинг AniPulse
                 item {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text("Рейтинг Shikimori", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("★ ${d.score?.takeIf { it.toDoubleOrNull()?.let { value -> value > 0.0 } == true } ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                        Surface(Modifier.weight(1f).fillMaxHeight(), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Text("Рейтинг Shikimori", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("★ ${d.score?.takeIf { it.toDoubleOrNull()?.let { value -> value > 0.0 } == true } ?: "—"}", maxLines = 1, style = MaterialTheme.typography.titleLarge, color = Color(0xFFFFD66B), fontWeight = FontWeight.Bold)
+                                Text("Оценка каталога", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Surface(Modifier.weight(1f).height(96.dp), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text("Рейтинг AniPulse", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("♥ ${state.ratingAvg ?: "—"}", style = MaterialTheme.typography.titleLarge, color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)
-                                Text("${state.ratingCount} оценок", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Surface(Modifier.weight(1f).fillMaxHeight(), color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                Text("Рейтинг AniPulse", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("♥ ${state.ratingAvg ?: "—"}", maxLines = 1, style = MaterialTheme.typography.titleLarge, color = Color(0xFFFF4D8D), fontWeight = FontWeight.Bold)
+                                Text("${state.ratingCount} оценок", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -494,6 +496,8 @@ fun TitleScreen(
                                 })
                                 if (!cm.nick.equals(state.myNick, ignoreCase = true)) {
                                     Text("Профиль", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { commentProfileNick = cm.nick })
+                                    Text("Жалоба", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { viewModel.reportComment(cm) })
+                                    Text("Блок", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { viewModel.blockCommentAuthor(cm.nick) })
                                 } else {
                                     Text("Удалить", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, modifier = Modifier.clickable { viewModel.deleteComment(cm.id) })
                                 }

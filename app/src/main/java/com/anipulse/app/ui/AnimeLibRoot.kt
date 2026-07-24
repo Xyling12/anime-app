@@ -102,14 +102,16 @@ private val tabs = listOf(
 
 @Composable
 fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.compose.hiltViewModel()) {
-    val isDarkTheme by menuViewModel.isDarkTheme.collectAsState()
-    AnimeLibTheme(darkTheme = isDarkTheme) {
+    // Светлая палитра ещё не прошла визуальную и accessibility-проверку.
+    // До её готовности приложение намеренно работает только в тёмной теме.
+    val isDarkTheme = true
+    AnimeLibTheme(darkTheme = true) {
         // Цвет иконок статус-бара (часы/батарея) должен следовать теме приложения,
         // а не системной: в светлой теме без этого иконки оставались белыми на белом.
         val view = androidx.compose.ui.platform.LocalView.current
         androidx.compose.runtime.SideEffect {
             (view.context as? android.app.Activity)?.window?.let { w ->
-                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = !isDarkTheme
+                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = false
             }
         }
 
@@ -131,8 +133,10 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         runCatching {
+                            val updateUri = android.net.Uri.parse(u.url)
+                            require(updateUri.scheme == "https" && updateUri.host == "anipulsetv.ru" && updateUri.path == "/alapi/apk")
                             updCtx.startActivity(
-                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u.url))
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, updateUri)
                             )
                         }
                         updateDismissed = true
@@ -325,7 +329,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 composable("profile") { 
                     com.anipulse.app.ui.profile.ProfileScreen(
                         isDarkTheme = isDarkTheme,
-                        onThemeToggle = { menuViewModel.toggleDarkTheme() }
+                        onThemeToggle = { }
                     ) 
                 }
 

@@ -1,0 +1,38 @@
+app.xn--c1acbe2apap.com {
+    reverse_proxy 127.0.0.1:8080
+}
+
+# Старый адрес AniPulse оставлен для установленных beta-версий и /license TakerTap.
+5-42-99-195.sslip.io {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        X-Frame-Options "DENY"
+        -Server
+    }
+    handle /license/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8090
+    }
+}
+
+anipulsetv.ru {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        X-Frame-Options "DENY"
+        -Server
+    }
+    handle /license/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8090
+    }
+}

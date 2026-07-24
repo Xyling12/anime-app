@@ -241,6 +241,14 @@ fun ChatScreen(
                                 text = { Text("Профиль") },
                                 onClick = { cardNick = m.nick; menuForId = null },
                             )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Пожаловаться", color = MaterialTheme.colorScheme.error) },
+                                onClick = { viewModel.reportMessage(m); menuForId = null },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Заблокировать", color = MaterialTheme.colorScheme.error) },
+                                onClick = { viewModel.blockUser(m.nick); menuForId = null },
+                            )
                         }
                         if (mine || viewModel.isAdmin()) {
                             androidx.compose.material3.DropdownMenuItem(

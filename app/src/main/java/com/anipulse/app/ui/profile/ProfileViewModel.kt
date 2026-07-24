@@ -95,11 +95,25 @@ class ProfileViewModel @Inject constructor(
         if (password != password2) {
             _state.update { it.copy(authError = "Пароли не совпадают") }; return
         }
-        authCall { gateway.register(RegisterRequest(nick.trim(), email.trim(), password)) }
+        authCall {
+            gateway.register(
+                RegisterRequest(
+                    nick = nick.trim(), email = email.trim(), password = password,
+                    acceptTerms = true, privacyConsent = true,
+                )
+            )
+        }
     }
 
     fun login(login: String, password: String) {
-        authCall { gateway.login(LoginRequest(login.trim(), password)) }
+        authCall {
+            gateway.login(
+                LoginRequest(
+                    login = login.trim(), password = password,
+                    acceptTerms = true, privacyConsent = true,
+                )
+            )
+        }
     }
 
     private fun authCall(call: suspend () -> com.anipulse.app.data.AuthResponse) {
@@ -141,8 +155,22 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun logout() {
-        settings.authToken = null; settings.authNick = null; settings.authEmail = null
+        settings.authToken = null; settings.authNick = null; settings.authEmail = null; settings.authAdmin = false
         _state.update { it.copy(nick = null, email = null, linked = emptyList()) }
+    }
+
+    fun deleteAccount() {
+        val token = settings.authToken ?: return
+        _state.update { it.copy(authBusy = true, authError = null) }
+        viewModelScope.launch {
+            runCatching { gateway.deleteAccount("Bearer $token") }
+                .onSuccess { logout() }
+                .onFailure { e ->
+                    val msg = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+                        ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                    _state.update { it.copy(authBusy = false, authError = msg ?: "Не удалось удалить аккаунт") }
+                }
+        }
     }
 
     /** Отзыв токенов на всех устройствах (сервер повышает версию токена), затем локальный выход. */
@@ -171,8 +199,8 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun resetPassword(email: String, code: String, password: String) {
-        if (code.isBlank() || password.length < 6) {
-            _state.update { it.copy(authError = "Введите код и пароль (мин. 6 символов)") }; return
+        if (code.isBlank() || password.length < 8 || password.length > 128) {
+            _state.update { it.copy(authError = "Введите код и пароль (8–128 символов)") }; return
         }
         authCall { gateway.resetPassword(com.anipulse.app.data.ResetRequest(email.trim(), code.trim(), password)) }
     }
@@ -204,6 +232,16 @@ class ProfileViewModel @Inject constructor(
     fun clearBugReport() = _state.update { it.copy(bugReportError = null, bugReportSent = false) }
 
     fun currentToken(): String? = settings.authToken
+
+    /** Получает короткоживущий одноразовый код привязки. Bearer-токен не попадает в URL браузера. */
+    fun createOAuthLinkCode(onReady: (String) -> Unit) {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching { gateway.createOAuthLinkCode("Bearer $token") }
+                .onSuccess { response -> response.code?.let(onReady) }
+                .onFailure { _state.update { it.copy(authError = "Не удалось начать привязку сервиса") } }
+        }
+    }
 
     /** Подтянуть аккаунт после возврата из OAuth-браузера (токен кладёт MainActivity). */
     fun syncFromSettings() {

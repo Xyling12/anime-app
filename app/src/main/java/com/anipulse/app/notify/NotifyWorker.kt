@@ -96,22 +96,22 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private suspend fun checkNewEpisodes(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
         val subscribed = settings.episodeNotifyIds.take(30)
         if (subscribed.isEmpty()) return
-            val state = JSONObject(prefs.getString("episodes_state", "{}") ?: "{}")
-            var changed = false
-            for (animeId in subscribed) {
-                val body = httpGet("${Api.SHIKIMORI}api/animes/$animeId", null) ?: continue
-                val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
-                val aired = o.optInt("episodes_aired", 0)
-                val status = o.optString("status")
-                val key = animeId
-                val prev = state.optInt(key, -1)
-                if (prev in 0 until aired && status == "ongoing") {
-                    val title = o.optString("russian").ifBlank { o.optString("name") }
-                    notify(ctx, "episodes", animeId.toInt(), "Вышла серия $aired", title)
-                }
-                if (prev != aired) { state.put(key, aired); changed = true }
+        val state = JSONObject(prefs.getString("episodes_state", "{}") ?: "{}")
+        var changed = false
+        for (animeId in subscribed) {
+            val body = httpGet("${Api.SHIKIMORI}api/animes/$animeId", null) ?: continue
+            val o = runCatching { JSONObject(body) }.getOrNull() ?: continue
+            val aired = o.optInt("episodes_aired", 0)
+            val status = o.optString("status")
+            val key = animeId
+            val prev = state.optInt(key, -1)
+            if (prev in 0 until aired && status == "ongoing") {
+                val title = o.optString("russian").ifBlank { o.optString("name") }
+                notify(ctx, "episodes", animeId.toInt(), "Вышла серия $aired", title)
             }
-            if (changed) prefs.edit().putString("episodes_state", state.toString()).apply()
+            if (prev != aired) { state.put(key, aired); changed = true }
+        }
+        if (changed) prefs.edit().putString("episodes_state", state.toString()).apply()
     }
 
     private fun httpGet(url: String, token: String?): String? {
@@ -138,6 +138,14 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             .setContentText(text)
             .setAutoCancel(true)
             .setContentIntent(pi)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(ctx, channelId)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("Новое уведомление AniPulse")
+                    .setContentText("Откройте приложение, чтобы прочитать")
+                    .build()
+            )
             .build()
         (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .notify(channel.hashCode() + id, n)

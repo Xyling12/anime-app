@@ -29,5 +29,5 @@ interface ShikimoriApi {
     suspend fun similar(@Path("id") id: Long): List<ShikiAnime>
 
     @GET("api/calendar")
-    suspend fun calendar(@Query("censored") censored: Boolean = false): List<ShikiCalendarEntry>
+    suspend fun calendar(@Query("censored") censored: Boolean = true): List<ShikiCalendarEntry>
 }

@@ -1,7 +1,11 @@
 // AniPulse API-шлюз: обход блокировок РФ + ddos-guard + кэш + постеры + Kodik (маппинг по shikimori_id + извлечение HD).
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const pathModule = require('path');
 const { URL } = require('url');
+const DATA_DIR = process.env.ANIPULSE_DATA_DIR || '/opt/anipulse';
+const dataPath = (name) => pathModule.join(DATA_DIR, name);
 
 const UPSTREAMS = {
   shikimori: 'https://shikimori.io',
@@ -14,7 +18,9 @@ const UPSTREAMS = {
   anilistcdn:'https://s4.anilist.co',
 };
 const KODIK_API = 'https://kodik-api.com';
-const KODIK_TOKEN = '447d179e875efe44217f20d1ee2146be';
+const KODIK_TOKEN = process.env.KODIK_TOKEN || (() => {
+  try { return fs.readFileSync(dataPath('kodik-token'), 'utf8').trim(); } catch (_) { return ''; }
+})();
 const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
 const cache = new Map();
 const posterCache = new Map();
@@ -31,7 +37,7 @@ setInterval(() => {
   for (const [k, v] of posterCache) { if (v.exp <= now) posterCache.delete(k); }
 }, 5 * 60 * 1000).unref();
 
-function fetchFollow(urlStr, { cookies = {}, redirects = 0, method = 'GET', body = null, headers = {} } = {}) {
+function fetchFollow(urlStr, { cookies = {}, redirects = 0, method = 'GET', body = null, headers = {}, maxBytes = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error('too many redirects'));
     const u = new URL(urlStr);
@@ -47,7 +53,12 @@ function fetchFollow(urlStr, { cookies = {}, redirects = 0, method = 'GET', body
       if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
         res.resume(); return resolve(fetchFollow(new URL(res.headers.location, u).toString(), { cookies, redirects: redirects+1 }));
       }
-      const ch = []; res.on('data', d => ch.push(d));
+      const ch = []; let received = 0;
+      res.on('data', d => {
+        received += d.length;
+        if (received > maxBytes) return req.destroy(new Error('upstream response too large'));
+        ch.push(d);
+      });
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(ch), ctype: res.headers['content-type'] || 'application/json' }));
     });
     req.on('error', reject);
@@ -199,12 +210,12 @@ function handlePoster(id, res) {
 
 // OTA-обновления: манифест версии + сам APK (кладётся в /opt/anipulse при релизе).
 function handleAppVersion(res) {
-  try { return jsonRes(res, 200, JSON.parse(fs.readFileSync('/opt/anipulse/app-version.json', 'utf8'))); }
+  try { return jsonRes(res, 200, JSON.parse(fs.readFileSync(dataPath('app-version.json'), 'utf8'))); }
   catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
 }
 function handleApkDownload(res) {
   try {
-    const b = fs.readFileSync('/opt/anipulse/AniPulse-latest.apk');
+    const b = fs.readFileSync(dataPath('AniPulse-latest.apk'));
     res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="AniPulse.apk"', 'Content-Length': b.length });
     res.end(b);
   } catch (e) { res.writeHead(404); res.end('no apk'); }
@@ -239,9 +250,8 @@ async function handleAnilibriaUpdates(res) {
 
 // ===== Аккаунты AniPulse (регистрация ник/почта/пароль, токены HMAC) =====
 const crypto = require('crypto');
-const fs = require('fs');
-const USERS_FILE = '/opt/anipulse/users.json';
-const SECRET_FILE = '/opt/anipulse/auth-secret';
+const USERS_FILE = dataPath('users.json');
+const SECRET_FILE = dataPath('auth-secret');
 if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
 const AUTH_SECRET = fs.readFileSync(SECRET_FILE, 'utf8').trim();
 // Rate limiting: попытки входа по IP, спам-лимиты по пользователю
@@ -314,7 +324,7 @@ function authUserEarly(req) {
   if (!userId) return null;
   return loadUsers().users.find(u => u.id === userId) || null;
 }
-const SMTP_FILE = '/opt/anipulse/smtp.json';
+const SMTP_FILE = dataPath('smtp.json');
 let _mailer = null;
 function sendMail(to, subject, text) {
   try {
@@ -326,7 +336,7 @@ function sendMail(to, subject, text) {
     _mailer.sendMail({ from: 'AniPulse <' + _mailer._from + '>', to, subject, text }, () => {});
   } catch (e) {}
 }
-const BUGREPORT_FILE = '/opt/anipulse/bugreport.json';
+const BUGREPORT_FILE = dataPath('bugreport.json');
 function bugReportTo() {
   try { return JSON.parse(fs.readFileSync(BUGREPORT_FILE, 'utf8')).to; } catch (e) {}
   try { return JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8')).user; } catch (e) { return null; }
@@ -355,12 +365,26 @@ async function handleBugReport(req, res) {
   return jsonRes(res, 200, { ok: true });
 }
 function newVerifyCode(u) {
-  u.verifyCode = String(Math.floor(100000 + Math.random() * 900000));
+  u.verifyCode = String(crypto.randomInt(100000, 1000000));
   u.verifyExp = Date.now() + 15 * 60 * 1000;
   sendMail(u.email, 'Код подтверждения AniPulse', 'Ваш код: ' + u.verifyCode + '\n\nКод действует 15 минут.');
 }
 
 async function handleAuth(req, res, path) {
+  if (path === 'exchange' && req.method === 'POST') {
+    if (tooMany(ipHits, 'oauth-exchange:' + clientIp(req), 10, 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
+    const b = await readBody(req);
+    const grant = b && consumeOAuthCode(String(b.code || ''), 'login');
+    const user = grant && loadUsers().users.find(u => u.id === grant.userId);
+    if (!user) return jsonRes(res, 400, { error: 'Код использован или устарел' });
+    return jsonRes(res, 200, { token: makeToken(user.id), nick: user.nick, email: user.email });
+  }
+  if (path === 'link-code' && req.method === 'POST') {
+    const user = authUserEarly(req);
+    if (!user) return jsonRes(res, 401, { error: 'auth' });
+    if (tooMany(userHits, 'oauth-link:' + user.id, 5, 10 * 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
+    return jsonRes(res, 200, { code: createOAuthCode('link', { userId: user.id }, 5 * 60 * 1000) });
+  }
   if ((path === 'register' || path === 'login') && req.method === 'POST') {
     if (tooMany(ipHits, 'auth:' + clientIp(req), 5, 60 * 1000)) {
       return jsonRes(res, 429, { error: 'Слишком много попыток, подождите минуту' });
@@ -374,17 +398,33 @@ async function handleAuth(req, res, path) {
     u.tv = (u.tv || 0) + 1; saveUsers(db);
     return jsonRes(res, 200, { ok: true });
   }
+  if (path === 'delete-account' && req.method === 'POST') {
+    const user = authUserEarly(req);
+    if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
+    const b = await readBody(req);
+    if (!b || b.confirm !== 'DELETE') return jsonRes(res, 400, { error: 'Подтвердите удаление' });
+    deleteAccountData(user);
+    return jsonRes(res, 200, { ok: true });
+  }
   if (path === 'register' && req.method === 'POST') {
     const b = await readBody(req);
     if (!b || !b.nick || !b.email || !b.password) return jsonRes(res, 400, { error: 'Заполните все поля' });
+    if (b.acceptTerms !== true || b.privacyConsent !== true) {
+      return jsonRes(res, 400, { error: 'Примите условия и дайте отдельное согласие на обработку данных' });
+    }
     const nick = String(b.nick).trim(), email = String(b.email).trim().toLowerCase();
     if (nick.length < 3 || nick.length > 24) return jsonRes(res, 400, { error: 'Ник: 3-24 символа' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return jsonRes(res, 400, { error: 'Некорректная почта' });
-    if (String(b.password).length < 6) return jsonRes(res, 400, { error: 'Пароль: минимум 6 символов' });
+    if (String(b.password).length < 8 || String(b.password).length > 128) return jsonRes(res, 400, { error: 'Пароль: 8–128 символов' });
     const db = loadUsers();
     if (db.users.some(u => u.nick.toLowerCase() === nick.toLowerCase())) return jsonRes(res, 409, { error: 'Ник занят' });
     if (db.users.some(u => u.email === email)) return jsonRes(res, 409, { error: 'Почта уже зарегистрирована' });
-    const user = { id: ++db.seq, nick, email, pass: hashPassword(String(b.password)), linked: {}, createdAt: Date.now() };
+    const now = Date.now();
+    const user = {
+      id: ++db.seq, nick, email, pass: hashPassword(String(b.password)), linked: {}, createdAt: now,
+      termsAcceptedAt: now, termsVersion: '2026-07-22',
+      privacyConsentAt: now, privacyConsentVersion: '2026-07-22',
+    };
     user.emailVerified = false; newVerifyCode(user);
     db.users.push(user); saveUsers(db);
     return jsonRes(res, 200, { token: makeToken(user.id), nick: user.nick, email: user.email });
@@ -396,6 +436,14 @@ async function handleAuth(req, res, path) {
     const db = loadUsers();
     const user = db.users.find(u => u.email === login || u.nick.toLowerCase() === login);
     if (!user || !checkPassword(String(b.password), user.pass)) return jsonRes(res, 401, { error: 'Неверный логин или пароль' });
+    // Новая версия клиента просит отдельные отметки и обновляет согласия при каждом осознанном входе.
+    // Старые beta-сборки временно не блокируем, чтобы OTA-миграция не заперла уже созданные аккаунты.
+    if (b.acceptTerms === true && b.privacyConsent === true) {
+      const now = Date.now();
+      user.termsAcceptedAt = now; user.termsVersion = '2026-07-22';
+      user.privacyConsentAt = now; user.privacyConsentVersion = '2026-07-22';
+      saveUsers(db);
+    }
     return jsonRes(res, 200, { token: makeToken(user.id), nick: user.nick, email: user.email });
   }
   if (path === 'verify' && req.method === 'POST') {
@@ -430,7 +478,7 @@ async function handleAuth(req, res, path) {
     const db = loadUsers();
     const u = db.users.find(x => x.email === email);
     if (u) {
-      u.resetCode = String(Math.floor(100000 + Math.random() * 900000));
+      u.resetCode = String(crypto.randomInt(100000, 1000000));
       u.resetExp = Date.now() + 15 * 60 * 1000;
       u.resetAttempts = 0;
       saveUsers(db);
@@ -445,7 +493,7 @@ async function handleAuth(req, res, path) {
     const code = String((b && b.code) || '');
     const password = String((b && b.password) || '');
     if (!email || !code) return jsonRes(res, 400, { error: 'Укажите почту и код' });
-    if (password.length < 6) return jsonRes(res, 400, { error: 'Пароль: минимум 6 символов' });
+    if (password.length < 8 || password.length > 128) return jsonRes(res, 400, { error: 'Пароль: 8–128 символов' });
     const db = loadUsers();
     const u = db.users.find(x => x.email === email);
     // Лимит попыток на аккаунт — не даём подобрать 6-значный код перебором даже при обходе IP-лимита.
@@ -473,9 +521,11 @@ async function handleAuth(req, res, path) {
 
 
 // ===== Соцчасть: общий чат, комментарии к тайтлам, свой рейтинг 1-10 =====
-const CHAT_FILE = '/opt/anipulse/chat.json';
-const COMMENTS_FILE = '/opt/anipulse/comments.json';
-const RATINGS_FILE = '/opt/anipulse/ratings.json';
+const CHAT_FILE = dataPath('chat.json');
+const COMMENTS_FILE = dataPath('comments.json');
+const RATINGS_FILE = dataPath('ratings.json');
+const BLOCKS_FILE = dataPath('blocks.json');
+const REPORTS_FILE = dataPath('reports.json');
 // «Файла нет» → дефолт (норма при первом запуске). «Файл есть, но не парсится» → throw:
 // иначе следующий saveJson молча затёр бы всё хранилище дефолтом (полная потеря чата/ЛС и т.п.).
 // throw ловится общим обработчиком route() → клиент получит 500, данные останутся нетронуты.
@@ -493,9 +543,61 @@ function authUser(req) {
   return u;
 }
 function sanitizeText(t, max) { return String(t || '').replace(/\s+/g, ' ').trim().slice(0, max); }
+function blocksDb() { return loadJson(BLOCKS_FILE, {}); }
+function blockedIds(db, userId) { return (db[String(userId)] || []).map(Number); }
+function hasBlocked(db, userId, targetId) { return blockedIds(db, userId).includes(Number(targetId)); }
+function blockedEither(db, a, b) { return hasBlocked(db, a, b) || hasBlocked(db, b, a); }
+function userIdByNick(nick) {
+  const u = loadUsers().users.find(x => x.nick && x.nick.toLowerCase() === String(nick || '').toLowerCase());
+  return u ? u.id : null;
+}
+
+function deleteAccountData(user) {
+  const db = loadUsers();
+  db.users = db.users.filter(u => u.id !== user.id); saveUsers(db);
+
+  const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
+  chat.messages = chat.messages.filter(m => m.userId !== user.id); saveJson(CHAT_FILE, chat);
+
+  const comments = loadJson(COMMENTS_FILE, {});
+  for (const key of Object.keys(comments)) comments[key] = comments[key].filter(c => c.userId !== user.id);
+  saveJson(COMMENTS_FILE, comments);
+
+  const ratings = loadJson(RATINGS_FILE, {});
+  for (const votes of Object.values(ratings)) delete votes[user.id];
+  saveJson(RATINGS_FILE, ratings);
+
+  const dms = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
+  for (const key of Object.keys(dms.threads || {})) {
+    if (key.split(':').map(Number).includes(user.id)) { delete dms.threads[key]; delete dms.lastRead[key]; }
+  }
+  saveJson(DM_FILE, dms);
+
+  const friends = friendsDb(); delete friends[user.id];
+  for (const value of Object.values(friends)) {
+    value.friends = (value.friends || []).filter(id => id !== user.id);
+    value.incoming = (value.incoming || []).filter(id => id !== user.id);
+  }
+  saveJson(FRIENDS_FILE, friends);
+
+  const notifications = loadJson(NOTIF_FILE, { seq: 0, byUser: {} });
+  delete notifications.byUser[user.id]; saveJson(NOTIF_FILE, notifications);
+
+  const blocks = blocksDb(); delete blocks[user.id];
+  for (const key of Object.keys(blocks)) blocks[key] = blockedIds(blocks, key).filter(id => id !== user.id);
+  saveJson(BLOCKS_FILE, blocks);
+
+  const reports = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+  for (const r of reports.items) {
+    if (r.reporterId === user.id) { r.reporterId = null; r.reporterNick = 'Удалённый аккаунт'; }
+    if (r.targetNick && r.targetNick.toLowerCase() === String(user.nick).toLowerCase()) r.targetNick = 'Удалённый аккаунт';
+  }
+  saveJson(REPORTS_FILE, reports);
+  try { fs.unlinkSync(`${AVATARS_DIR}/${user.id}.img`); } catch (_) {}
+}
 // ===== Соцчасть v2: уведомления, @упоминания, ЛС =====
-const NOTIF_FILE = '/opt/anipulse/notifications.json';
-const DM_FILE = '/opt/anipulse/dms.json';
+const NOTIF_FILE = dataPath('notifications.json');
+const DM_FILE = dataPath('dms.json');
 
 function addNotification(toUserId, notif) {
   const all = loadJson(NOTIF_FILE, { seq: 0, byUser: {} });
@@ -512,9 +614,10 @@ function notifyMentions(text, fromUser, source) {
   const nicks = [...new Set((text.match(/@[\w.-]{2,24}/g) || []).map(s => s.slice(1).toLowerCase()))];
   if (!nicks.length) return;
   const users = loadUsers().users;
+  const blocks = blocksDb();
   for (const n of nicks) {
     const u = users.find(x => x.nick && x.nick.toLowerCase() === n);
-    if (!u || u.id === fromUser.id) continue;
+    if (!u || u.id === fromUser.id || blockedEither(blocks, u.id, fromUser.id)) continue;
     addNotification(u.id, { type: 'mention', from: fromUser.nick, text: String(text).slice(0, 200), source });
   }
 }
@@ -548,11 +651,13 @@ async function handleDm(req, res) {
   if (req.method === 'GET' && req.url.startsWith('/alapi/dm/list')) {
     const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const users = loadUsers().users;
+    const blocks = blocksDb();
     const out = [];
     for (const [key, msgs] of Object.entries(all.threads)) {
       const ids = key.split(':').map(Number);
       if (!ids.includes(user.id) || !msgs.length) continue;
       const otherId = ids[0] === user.id ? ids[1] : ids[0];
+      if (blockedEither(blocks, user.id, otherId)) continue;
       const other = users.find(u => u.id === otherId);
       const last = msgs[msgs.length - 1];
       const lastRead = (all.lastRead[key] || {})[user.id] || 0;
@@ -572,6 +677,7 @@ async function handleDm(req, res) {
     const withNick = decodeURIComponent(String((req.url.match(/[?&]with=([^&]+)/) || [])[1] || ''));
     const other = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === withNick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
+    if (blockedEither(blocksDb(), user.id, other.id)) return jsonRes(res, 403, { error: 'Переписка недоступна: один из вас заблокировал другого' });
     const after = Number((req.url.match(/[?&]after=(\d+)/) || [])[1] || 0);
     const key = dmKey(user.id, other.id);
     const msgs = (all.threads[key] || []).filter(m => m.id > after).slice(-100)
@@ -593,6 +699,7 @@ async function handleDm(req, res) {
     const other = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === toNick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Нельзя писать себе' });
+    if (blockedEither(blocksDb(), user.id, other.id)) return jsonRes(res, 403, { error: 'Переписка недоступна: один из вас заблокировал другого' });
     const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const key = dmKey(user.id, other.id);
     const msg = { id: ++all.seq, from: user.nick, fromAvatar: avatarOf(user), to: other.nick, text, at: Date.now() };
@@ -608,7 +715,7 @@ async function handleDm(req, res) {
 // ===== конец соцчасти v2 =====
 
 // ===== Соцчасть v3: онлайн-статус, публичная карточка, профиль, друзья =====
-const FRIENDS_FILE = '/opt/anipulse/friends.json';
+const FRIENDS_FILE = dataPath('friends.json');
 const ONLINE_MS = 2 * 60 * 1000; // активность за 2 минуты = онлайн
 
 // Отметка активности: не чаще раза в 60с на пользователя, чтобы не писать файл на каждый запрос.
@@ -658,6 +765,7 @@ async function handleUserCard(req, res) {
     out.friendState = mine.friends.includes(u.id) ? 'friends'
       : mine.incoming.includes(u.id) ? 'incoming'
       : theirs.incoming.includes(me.id) ? 'outgoing' : 'none';
+    out.blocked = hasBlocked(blocksDb(), me.id, u.id);
   } else if (me) out.friendState = 'self';
   return jsonRes(res, 200, out);
 }
@@ -666,6 +774,7 @@ async function handleProfileUpdate(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'auth' });
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  if (tooMany(userHits, 'profile:' + user.id, 20, 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
   const b = await readBody(req);
   const db = loadUsers();
   const u = db.users.find(x => x.id === user.id);
@@ -674,10 +783,10 @@ async function handleProfileUpdate(req, res) {
   if (b && typeof b.favoriteGenre === 'string') u.favoriteGenre = sanitizeText(b.favoriteGenre, 40);
   if (b && b.stats && typeof b.stats === 'object') {
     u.stats = {
-      watchedEpisodes: Math.max(0, Number(b.stats.watchedEpisodes) || 0),
-      watchMinutes: Math.max(0, Number(b.stats.watchMinutes) || 0),
-      startedTitles: Math.max(0, Number(b.stats.startedTitles) || 0),
-      favoritesCount: Math.max(0, Number(b.stats.favoritesCount) || 0),
+      watchedEpisodes: Math.min(1_000_000, Math.max(0, Math.trunc(Number(b.stats.watchedEpisodes) || 0))),
+      watchMinutes: Math.min(10_000_000, Math.max(0, Math.trunc(Number(b.stats.watchMinutes) || 0))),
+      startedTitles: Math.min(100_000, Math.max(0, Math.trunc(Number(b.stats.startedTitles) || 0))),
+      favoritesCount: Math.min(100_000, Math.max(0, Math.trunc(Number(b.stats.favoritesCount) || 0))),
     };
   }
   saveUsers(db);
@@ -787,8 +896,23 @@ function banMessage(u) {
 async function handleAdmin(req, res) {
   const user = authUser(req);
   if (!user || !user.admin) return jsonRes(res, 403, { error: 'Только для администратора' });
+  if (req.method === 'GET' && req.url.startsWith('/alapi/admin/reports')) {
+    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const status = new URL('http://x' + req.url).searchParams.get('status') || 'open';
+    return jsonRes(res, 200, all.items.filter(x => status === 'all' || x.status === status).slice(-200).reverse());
+  }
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
   const b = await readBody(req);
+  if (req.url.startsWith('/alapi/admin/reports/resolve')) {
+    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const report = all.items.find(x => x.id === Number(b && b.id));
+    if (!report) return jsonRes(res, 404, { error: 'Жалоба не найдена' });
+    report.status = ['resolved', 'rejected'].includes(b && b.status) ? b.status : 'resolved';
+    report.resolvedAt = Date.now(); report.resolvedBy = user.nick;
+    report.resolution = sanitizeText(b && b.resolution, 300);
+    saveJson(REPORTS_FILE, all);
+    return jsonRes(res, 200, { ok: true });
+  }
   if (req.url.startsWith('/alapi/admin/delete-chat')) {
     const id = Number(b && b.id) || 0;
     const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
@@ -830,7 +954,9 @@ async function handleChat(req, res) {
     // иначе после смены аватарки старые сообщения показывали старую.
     const avByNick = {};
     for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
-    const out = chat.messages.filter(m => m.id > after).slice(-100).map(({ userId, ...rest }) => ({
+    const viewer = authUser(req);
+    const hidden = viewer ? blockedIds(blocksDb(), viewer.id) : [];
+    const out = chat.messages.filter(m => m.id > after && !hidden.includes(Number(m.userId))).slice(-100).map(({ userId, ...rest }) => ({
       ...rest,
       avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
     }));
@@ -878,7 +1004,9 @@ async function handleComments(req, res) {
     // публично не отдаём, чтобы не облегчать перечисление аккаунтов по нику↔id.
     const avByNick = {};
     for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
-    const out = (all[animeId] || []).slice(-100).map(({ userId, ...rest }) => ({
+    const viewer = authUser(req);
+    const hidden = viewer ? blockedIds(blocksDb(), viewer.id) : [];
+    const out = (all[animeId] || []).filter(c => !hidden.includes(Number(c.userId))).slice(-100).map(({ userId, ...rest }) => ({
       ...rest,
       avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
     }));
@@ -949,10 +1077,12 @@ async function handleRating(req, res) {
   if (req.method === 'POST') {
     const user = authUser(req);
     if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы оценивать' });
+    if (user.emailVerified === false) return jsonRes(res, 403, { error: 'Подтвердите почту' });
+    if (tooMany(userHits, 'rating:' + user.id, 30, 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
     const b = await readBody(req);
     const id = String((b && b.animeId) || '');
     const score = Number(b && b.score);
-    if (!id || !(score >= 1 && score <= 10)) return jsonRes(res, 400, { error: 'Оценка 1-10' });
+    if (!/^\d{1,12}$/.test(id) || !Number.isInteger(score) || !(score >= 1 && score <= 10)) return jsonRes(res, 400, { error: 'Оценка 1-10' });
     const all = loadJson(RATINGS_FILE, {});
     const votes = all[id] || {};
     votes[user.id] = Math.round(score);
@@ -992,9 +1122,103 @@ async function handleAvatar(req, res) {
 }
 
 // ===== Кастомные аватарки: загрузка своего изображения =====
-const AVATARS_DIR = '/opt/anipulse/avatars';
+const AVATARS_DIR = dataPath('avatars');
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { mode: 0o700 });
 const AVATAR_MAX_B64 = 400 * 1024; // ~300КБ картинки; клиент жмёт до 256x256 JPEG (~20-40КБ)
+
+function jpegDimensions(buf) {
+  if (buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+  let p = 2;
+  while (p + 9 < buf.length) {
+    if (buf[p] !== 0xFF) { p++; continue; }
+    const marker = buf[p + 1]; p += 2;
+    if (marker === 0xD9 || marker === 0xDA) break;
+    if (p + 2 > buf.length) return null;
+    const length = buf.readUInt16BE(p);
+    if (length < 2 || p + length > buf.length) return null;
+    if ([0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF].includes(marker)) {
+      return { height: buf.readUInt16BE(p + 3), width: buf.readUInt16BE(p + 5) };
+    }
+    p += length;
+  }
+  return null;
+}
+
+// ===== Модерация: жалобы и пользовательские блокировки =====
+function removeRelationship(a, b) {
+  const fdb = friendsDb();
+  const aa = friendsOf(fdb, a), bb = friendsOf(fdb, b);
+  aa.friends = aa.friends.filter(id => id !== b); aa.incoming = aa.incoming.filter(id => id !== b);
+  bb.friends = bb.friends.filter(id => id !== a); bb.incoming = bb.incoming.filter(id => id !== a);
+  saveJson(FRIENDS_FILE, fdb);
+}
+
+function reportSnapshot(type, targetId, animeId, reporterId) {
+  if (type === 'chat') {
+    return loadJson(CHAT_FILE, { messages: [] }).messages.find(m => m.id === Number(targetId)) || null;
+  }
+  if (type === 'comment') {
+    const all = loadJson(COMMENTS_FILE, {});
+    return (all[String(animeId || '')] || []).find(m => m.id === Number(targetId)) || null;
+  }
+  if (type === 'dm') {
+    const all = loadJson(DM_FILE, { threads: {} });
+    for (const [key, list] of Object.entries(all.threads || {})) {
+      if (!key.split(':').map(Number).includes(reporterId)) continue;
+      const found = list.find(m => m.id === Number(targetId));
+      if (found) return found;
+    }
+    return null;
+  }
+  return type === 'profile' ? { nick: sanitizeText(targetId, 24) } : null;
+}
+
+async function handleModeration(req, res) {
+  const user = authUser(req);
+  if (!user) return jsonRes(res, 401, { error: 'Войдите в аккаунт' });
+  if (req.method === 'GET' && req.url.startsWith('/alapi/blocks')) {
+    const ids = blockedIds(blocksDb(), user.id);
+    const users = loadUsers().users;
+    return jsonRes(res, 200, ids.map(id => users.find(u => u.id === id)?.nick).filter(Boolean));
+  }
+  if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  const b = await readBody(req);
+  if (req.url.startsWith('/alapi/blocks')) {
+    const nick = sanitizeText(b && b.nick, 24);
+    const targetId = userIdByNick(nick);
+    if (!targetId) return jsonRes(res, 404, { error: 'Пользователь не найден' });
+    if (targetId === user.id) return jsonRes(res, 400, { error: 'Нельзя заблокировать себя' });
+    const all = blocksDb();
+    const mine = blockedIds(all, user.id);
+    const block = b.action !== 'unblock';
+    all[String(user.id)] = block ? [...new Set([...mine, targetId])] : mine.filter(id => id !== targetId);
+    saveJson(BLOCKS_FILE, all);
+    if (block) removeRelationship(user.id, targetId);
+    return jsonRes(res, 200, { blocked: block });
+  }
+  if (req.url.startsWith('/alapi/reports')) {
+    if (tooMany(userHits, 'report:' + user.id, 10, 24 * 60 * 60 * 1000)) {
+      return jsonRes(res, 429, { error: 'Не более 10 жалоб в сутки' });
+    }
+    const type = String((b && b.type) || '');
+    if (!['chat', 'comment', 'dm', 'profile'].includes(type)) return jsonRes(res, 400, { error: 'Неверный тип жалобы' });
+    const targetId = String((b && b.targetId) || '');
+    const snapshot = reportSnapshot(type, targetId, b && b.animeId, user.id);
+    if (!snapshot) return jsonRes(res, 404, { error: 'Объект жалобы не найден' });
+    const reason = sanitizeText(b && b.reason, 80);
+    if (!reason) return jsonRes(res, 400, { error: 'Укажите причину' });
+    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const report = {
+      id: ++all.seq, reporterId: user.id, reporterNick: user.nick, type,
+      targetId, targetNick: sanitizeText((b && b.targetNick) || snapshot.nick || snapshot.from, 24),
+      animeId: sanitizeText(b && b.animeId, 40), reason,
+      details: sanitizeText(b && b.details, 500), snapshot, status: 'open', createdAt: Date.now(),
+    };
+    all.items.push(report); all.items = all.items.slice(-2000); saveJson(REPORTS_FILE, all);
+    return jsonRes(res, 200, { ok: true, reportId: report.id });
+  }
+  return jsonRes(res, 404, { error: 'not found' });
+}
 
 /** Аватар пользователя для публичных ответов: -1 = кастомный (клиент грузит /alapi/avatar-img). */
 function avatarOf(u) { return u.customAvatar ? -1 : (u.avatar || 0); }
@@ -1008,12 +1232,15 @@ async function handleAvatarUpload(req, res) {
   const b64 = b && typeof b.image === 'string' ? b.image : null;
   if (!b64 || b64.length > AVATAR_MAX_B64) return jsonRes(res, 400, { error: 'Картинка не больше 300КБ' });
   let buf;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return jsonRes(res, 400, { error: 'Битые данные' });
   try { buf = Buffer.from(b64, 'base64'); } catch (e) { return jsonRes(res, 400, { error: 'Битые данные' }); }
-  // Только реальные картинки: сверяем магические байты (JPEG/PNG/WebP), никакого HTML/скриптов.
+  // Официальный клиент всегда предварительно обрезает и перекодирует аватар в JPEG.
+  // Один формат уменьшает поверхность парсеров; дополнительно проверяем структуру и размеры.
   const isJpeg = buf.length > 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
-  const isPng = buf.length > 8 && buf.readUInt32BE(0) === 0x89504E47;
-  const isWebp = buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
-  if (!isJpeg && !isPng && !isWebp) return jsonRes(res, 400, { error: 'Поддерживаются JPEG/PNG/WebP' });
+  const dimensions = isJpeg && jpegDimensions(buf);
+  if (!dimensions || dimensions.width < 32 || dimensions.height < 32 || dimensions.width > 512 || dimensions.height > 512) {
+    return jsonRes(res, 400, { error: 'Нужен корректный JPEG размером до 512×512' });
+  }
   // Имя файла — только числовой id пользователя, никакого пользовательского ввода в пути.
   fs.writeFileSync(`${AVATARS_DIR}/${Number(user.id)}.img`, buf, { mode: 0o600 });
   const db = loadUsers();
@@ -1025,33 +1252,50 @@ async function handleAvatarUpload(req, res) {
   return jsonRes(res, 200, { ok: true, avatar: -1, avatarRev: u.avatarRev });
 }
 
-const AVATAR_MIME = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 function handleAvatarImg(req, res) {
   const nick = decodeURIComponent(String((req.url.match(/[?&]nick=([^&]+)/) || [])[1] || ''));
   const u = loadUsers().users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
   if (!u || !u.customAvatar) { res.writeHead(404); return res.end('no avatar'); }
   let buf;
   try { buf = fs.readFileSync(`${AVATARS_DIR}/${Number(u.id)}.img`); } catch (e) { res.writeHead(404); return res.end('no avatar'); }
-  const type = buf[0] === 0xFF ? AVATAR_MIME.jpeg : buf[0] === 0x89 ? AVATAR_MIME.png : AVATAR_MIME.webp;
-  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' });
+  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
   res.end(buf);
 }
 
 
 // ===== OAuth: Яндекс (ключи в /opt/anipulse/oauth.json, chmod 600) + VK ID (PKCE, без секрета) =====
-const OAUTH_FILE = '/opt/anipulse/oauth.json';
+const OAUTH_FILE = dataPath('oauth.json');
 function oauthCfg() { try { return JSON.parse(fs.readFileSync(OAUTH_FILE, 'utf8')); } catch (e) { return {}; } }
 const OAUTH_REDIRECT_BASE = 'https://anipulsetv.ru/alapi/auth';
 // OAuth-состояния (PKCE/nonce) хранятся в ФАЙЛЕ, а не в памяти: рестарт сервера
 // (деплой) раньше стирал их — если вкладка авторизации VK была открыта до рестарта,
 // колбэк приходил с валидным кодом, но неизвестным state («Ссылка устарела»).
-const OAUTH_STATE_FILE = '/opt/anipulse/oauth-state.json';
-function oauthStateAll() { return loadJson(OAUTH_STATE_FILE, { pkce: {}, yandex: {} }); }
+const OAUTH_STATE_FILE = dataPath('oauth-state.json');
+function oauthStateAll() {
+  const all = loadJson(OAUTH_STATE_FILE, { pkce: {}, yandex: {}, codes: {} });
+  all.pkce = all.pkce || {}; all.yandex = all.yandex || {}; all.codes = all.codes || {};
+  return all;
+}
 function oauthStateSweepSave(all) {
   const now = Date.now();
   for (const k of Object.keys(all.pkce)) if (all.pkce[k].exp < now) delete all.pkce[k];
   for (const k of Object.keys(all.yandex)) if (all.yandex[k].exp < now) delete all.yandex[k];
+  for (const k of Object.keys(all.codes || {})) if (all.codes[k].exp < now) delete all.codes[k];
   saveJson(OAUTH_STATE_FILE, all);
+}
+function oauthCodeKey(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
+function createOAuthCode(type, value, ttlMs = 60 * 1000) {
+  const code = crypto.randomBytes(32).toString('base64url');
+  const all = oauthStateAll();
+  all.codes[oauthCodeKey(code)] = { type, ...value, exp: Date.now() + ttlMs };
+  oauthStateSweepSave(all);
+  return code;
+}
+function consumeOAuthCode(code, type) {
+  if (!/^[A-Za-z0-9_-]{40,128}$/.test(code)) return null;
+  const all = oauthStateAll(), key = oauthCodeKey(code), value = all.codes[key];
+  delete all.codes[key]; oauthStateSweepSave(all);
+  return value && value.type === type && value.exp > Date.now() ? value : null;
 }
 const pkceStore = {
   set(k, v) { const a = oauthStateAll(); a.pkce[k] = v; oauthStateSweepSave(a); },
@@ -1070,31 +1314,45 @@ function socialLogin(provider, extId, displayName, res, state) {
   let web = false, realState = state || '';
   if (realState === 'web') { web = true; realState = ''; }
   else if (realState.startsWith('web.')) { web = true; realState = realState.slice(4); }
+  const consentAccepted = realState === 'consent.2026-07-22';
   if (realState && realState.startsWith('link.')) {
-    const userId = verifyToken(realState.slice(5));
+    const linkGrant = consumeOAuthCode(realState.slice(5), 'link');
+    const userId = linkGrant && linkGrant.userId;
     const u = userId && db.users.find(x => x.id === userId);
     if (u) {
       u.linked = u.linked || {}; u.linked[provider] = String(extId); saveUsers(db);
-      const loc = web ? 'https://anipulsetv.ru/profile?linked=' + provider : 'anipulse://auth?linked=' + provider;
+      const loc = web ? 'https://anipulsetv.ru/profile?linked=' + provider : 'https://anipulsetv.ru/auth/android-callback?linked=' + provider;
       res.writeHead(302, { Location: loc }); return res.end();
     }
   }
   let user = db.users.find(u => u.linked && u.linked[provider] === String(extId));
   if (!user) {
+    if (!consentAccepted) {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end('Для создания аккаунта вернитесь в AniPulse и примите условия и согласие на обработку данных.');
+    }
+    const now = Date.now();
     user = {
       id: ++db.seq,
       nick: uniqueNick(db, displayName),
       email: provider + '_' + extId + '@social.anipulse',
       pass: hashPassword(crypto.randomBytes(16).toString('hex')),
-      linked: {}, createdAt: Date.now(),
+      linked: {}, createdAt: now,
+      termsAcceptedAt: now, termsVersion: '2026-07-22',
+      privacyConsentAt: now, privacyConsentVersion: '2026-07-22',
     };
     user.linked[provider] = String(extId);
     db.users.push(user); saveUsers(db);
+  } else if (consentAccepted && (!user.termsAcceptedAt || !user.privacyConsentAt)) {
+    const now = Date.now();
+    user.termsAcceptedAt = now; user.termsVersion = '2026-07-22';
+    user.privacyConsentAt = now; user.privacyConsentVersion = '2026-07-22';
+    saveUsers(db);
   }
-  const token = makeToken(user.id);
+  const code = createOAuthCode('login', { userId: user.id });
   const loc = web
-    ? 'https://anipulsetv.ru/auth/callback?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick)
-    : 'anipulse://auth?token=' + encodeURIComponent(token) + '&nick=' + encodeURIComponent(user.nick);
+    ? 'https://anipulsetv.ru/auth/callback?code=' + encodeURIComponent(code)
+    : 'https://anipulsetv.ru/auth/android-callback?code=' + encodeURIComponent(code);
   res.writeHead(302, { Location: loc });
   res.end();
 }
@@ -1141,10 +1399,9 @@ async function handleOAuthVk(req, res, isCallback) {
     if (!isCallback) {
       const verifier = crypto.randomBytes(32).toString('base64url');
       const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-      const state = crypto.randomBytes(8).toString('hex') + '_' + (q.get('state') || '');
-      // Ключ — только nonce (до '_'): VK может исказить хвост state (токен привязки),
-      // поэтому linkState храним у себя и НЕ доверяем эхо от VK.
-      pkceStore.set(state.split('_')[0], { verifier, link: q.get('state') || '', exp: Date.now() + 10 * 60 * 1000 });
+      const state = crypto.randomBytes(16).toString('hex');
+      // Код привязки хранится только на сервере и не отправляется OAuth-провайдеру.
+      pkceStore.set(state, { verifier, link: q.get('state') || '', exp: Date.now() + 10 * 60 * 1000 });
       const url = 'https://id.vk.com/authorize?response_type=code&client_id=' + cfg.client_id +
         '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/vk/callback') +
         '&state=' + encodeURIComponent(state) +
@@ -1152,7 +1409,7 @@ async function handleOAuthVk(req, res, isCallback) {
       res.writeHead(302, { Location: url }); return res.end();
     }
     const code = q.get('code'), state = q.get('state') || '', deviceId = q.get('device_id') || '';
-    const saved = pkceStore.get(state.split('_')[0]);
+    const saved = pkceStore.get(state);
     if (!code || !saved) {
       // Диагностика в journal (без секретов): что именно пришло от VK.
       console.error('vk callback rejected:', JSON.stringify({
@@ -1169,7 +1426,7 @@ async function handleOAuthVk(req, res, isCallback) {
       res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end(human);
     }
-    pkceStore.delete(state.split('_')[0]);
+    pkceStore.delete(state);
     const body = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
       '&code_verifier=' + saved.verifier + '&client_id=' + cfg.client_id +
       '&device_id=' + encodeURIComponent(deviceId) + '&state=' + encodeURIComponent(state) +
@@ -1187,9 +1444,16 @@ async function handleOAuthVk(req, res, isCallback) {
   } catch (e) { res.writeHead(502); res.end('oauth error: ' + e.message); }
 }
 
-// ===== Публичные страницы: политика конфиденциальности, для правообладателей =====
+// ===== Публичные юридические страницы =====
 const LEGAL_CONTACT = 'anipulse.noreply@yandex.ru';
-const LEGAL_UPDATED = '16 июля 2026';
+const LEGAL_UPDATED = '22 июля 2026';
+const LEGAL_FILE = dataPath('legal.json');
+function legalCfg() {
+  return loadJson(LEGAL_FILE, {
+    operatorName: 'НЕ ЗАПОЛНЕНО', operatorAddress: 'НЕ ЗАПОЛНЕНО', operatorInn: '',
+    serverCountry: 'Российская Федерация', contact: LEGAL_CONTACT,
+  });
+}
 
 function legalPage(title, bodyHtml) {
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -1204,6 +1468,7 @@ function legalPage(title, bodyHtml) {
   p,li{color:#C9C6D6;font-size:15px;}
   a{color:#FF4D8D;}
   .updated{color:#8B889C;font-size:13px;margin-bottom:24px;}
+  .notice{border:1px solid #FF4D8D;border-radius:12px;padding:12px;color:#F2F0F7;background:#24131d;}
 </style></head><body>
 <h1>AniPulse</h1>
 <div class="updated">Обновлено: ${LEGAL_UPDATED}</div>
@@ -1212,11 +1477,14 @@ ${bodyHtml}
 }
 
 function handlePrivacyPage(res) {
+  const cfg = legalCfg(), contact = cfg.contact || LEGAL_CONTACT;
   const html = legalPage('Политика конфиденциальности', `
+<h2>1. Оператор</h2>
+<p>Оператор персональных данных: <b>${cfg.operatorName}</b>. Адрес: ${cfg.operatorAddress}.${cfg.operatorInn ? ` ИНН: ${cfg.operatorInn}.` : ''} Контакт: <a href="mailto:${contact}">${contact}</a>.</p>
 <h2>Какие данные мы собираем</h2>
 <p>При регистрации: ник, почта, пароль (хранится только в виде необратимого хеша scrypt — мы никогда не видим и не храним пароль в открытом виде). При входе через VK/Яндекс — идентификатор вашего аккаунта в этом сервисе, без пароля.</p>
-<p>По желанию: аватар (один из готовых пресетов), короткое «о себе», любимый жанр.</p>
-<p>Статистика просмотра (число серий, минут, тайтлов, избранного) — синхронизируется с сервером как агрегированные числа для карточки профиля. Сам список просмотренного и прогресс серий хранятся локально на вашем устройстве (в зашифрованном виде) и на сервер не передаются.</p>
+<p>По желанию: аватар (готовый пресет или загруженное и обрезанное пользователем изображение), короткое «о себе», любимый жанр.</p>
+<p>Статистика просмотра (число серий, минут, тайтлов, избранного) синхронизируется с сервером как агрегированные числа для карточки профиля. Сам список просмотренного и прогресс серий хранятся только в локальной базе приложения на защищённом хранилище Android и на сервер не передаются. Токен входа и настройки приложения хранятся отдельно в зашифрованном хранилище.</p>
 <p>Контент, который вы создаёте сами: сообщения в чате и личных сообщениях, комментарии, оценки тайтлов, заявки в друзья — хранится на нашем сервере, чтобы работать для всех пользователей.</p>
 <p>Автоматически: IP-адрес (только для защиты от злоупотреблений — ограничение частоты запросов, не хранится долговременно), при добровольной отправке баг-репорта — модель устройства и версия Android.</p>
 <h2>Как мы используем данные</h2>
@@ -1230,20 +1498,43 @@ function handlePrivacyPage(res) {
 <p>Никому не продаём и не передаём третьим лицам для рекламы. Для работы приложения используются:</p>
 <ul>
 <li><b>Shikimori</b> — каталог и описания тайтлов (без передачи ваших персональных данных)</li>
-<li><b>Kodik, AniLibria</b> — источники видео (без передачи ваших персональных данных)</li>
+<li><b>Kodik, AniLibria и их CDN</b> — источники видео. При прямом воспроизведении источник получает IP-адрес устройства и стандартные технические сведения сетевого запроса; отдельные узлы Kodik могут находиться за пределами России. Ник, email, сообщения и токен AniPulse этим источникам не передаются</li>
 <li><b>VK, Яндекс</b> — только если вы сами выбрали вход через них, по их собственным политикам конфиденциальности</li>
 <li><b>Яндекс.Почта</b> — для отправки писем с кодом подтверждения/восстановления пароля</li>
 </ul>
+<p>Правовые основания: отдельное согласие пользователя, исполнение пользовательского соглашения и законный интерес в защите сервиса от злоупотреблений.</p>
+<p>При прямом обращении к каталогу, CDN или источнику видео соответствующий сервис технически получает ваш IP-адрес и стандартные сетевые данные запроса. Для Kodik такая передача может осуществляться в Нидерланды. AniPulse не передаёт этим сервисам ваш ник, почту, сообщения или токен входа. Трансграничное воспроизведение допускается только после выполнения применимых требований законодательства и получения необходимого согласия пользователя.</p>
 <h2>Хранение и безопасность</h2>
-<p>Данные хранятся на нашем собственном сервере. Пароли — хешированы (scrypt), токены входа — отзываемые, локальное хранилище на устройстве — зашифровано. Старые сообщения/уведомления автоматически ограничиваются по количеству (не хранятся бессрочно).</p>
+<p>Основная база данных находится в стране: ${cfg.serverCountry}. Пароли хешируются scrypt, токены можно отозвать, а локальный токен хранится в защищённом хранилище Android.</p>
+<h2>Сроки хранения</h2>
+<ul><li>аккаунт и профиль — до удаления аккаунта;</li><li>чат, комментарии, ЛС и оценки — до удаления автором, лимита хранилища или аккаунта;</li><li>жалобы и решения модерации — до 3 лет в обезличенном виде;</li><li>технические журналы защиты — не более 30 дней.</li></ul>
 <h2>Ваши права</h2>
-<p>Вы можете изменить аватар/«о себе» прямо в приложении, выйти со всех устройств (отзыв токенов). Чтобы запросить удаление аккаунта и всех связанных данных — напишите нам на почту ниже, мы удалим данные в разумный срок.</p>
+<p>Вы можете получить сведения об обработке, исправить данные, отозвать согласие и удалить аккаунт из экрана «Аккаунт». По запросу на ${contact} ответ или удаление выполняются не позднее 30 календарных дней, если закон не требует хранить отдельные сведения дольше.</p>
 <h2>Контакты</h2>
-<p>По вопросам конфиденциальности: <a href="mailto:${LEGAL_CONTACT}">${LEGAL_CONTACT}</a></p>
+<p>По вопросам конфиденциальности: <a href="mailto:${contact}">${contact}</a></p>
 <p>Мы можем обновлять эту политику; дата последнего обновления указана вверху страницы.</p>
 `);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
+}
+
+function sendLegalPage(res, title, body) {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+  res.end(legalPage(title, body));
+}
+
+function handleTermsPage(res) {
+  const cfg = legalCfg(), contact = cfg.contact || LEGAL_CONTACT;
+  sendLegalPage(res, 'Пользовательское соглашение', `<h2>1. Общие условия</h2><p>AniPulse — beta-сервис ${cfg.operatorName}. Создавая аккаунт, вы принимаете эти условия. Сервис предназначен для лиц старше 18 лет.</p><h2>2. Аккаунт</h2><p>Вы отвечаете за сохранность доступа и действия в аккаунте. Аккаунт можно удалить в приложении.</p><h2>3. Контент и общение</h2><p>Пользователь сохраняет права на свой контент и даёт сервису неисключительное право показывать его в AniPulse. Запрещены угрозы, травля, спам, мошенничество, ненависть, порнография и нарушение чужих прав. Детали: <a href="/community-rules">Правила сообщества</a>.</p><h2>4. Модерация</h2><p>Мы можем скрыть или удалить контент, ограничить или заблокировать аккаунт при нарушениях. Жалобы подаются из меню контента.</p><h2>5. Beta-статус</h2><p>Функции могут меняться, а доступность материалов зависит от внешних источников. Мы не гарантируем бесперебойную работу.</p><h2>6. Контакт</h2><p><a href="mailto:${contact}">${contact}</a></p>`);
+}
+
+function handleCommunityRulesPage(res) {
+  sendLegalPage(res, 'Правила сообщества', `<h2>Будьте уважительны</h2><p>Нельзя угрожать, травить, преследовать, оскорблять или раскрывать чужие личные данные.</p><h2>Запрещённый контент</h2><ul><li>порнография, особенно с участием несовершеннолетних;</li><li>призывы к насилию, суициду, экстремизму или ненависти;</li><li>наркотики, оружие, мошенничество, фишинг и вредоносные ссылки;</li><li>спам, реклама без согласования и нарушение авторских прав.</li></ul><h2>Спойлеры</h2><p>Отмечайте спойлеры и не раскрывайте сюжет в нике или аватаре.</p><h2>Жалобы</h2><p>Выберите «Пожаловаться» в меню сообщения, комментария или профиля. Заведомо ложные жалобы также нарушают правила.</p>`);
+}
+
+function handleConsentPage(res) {
+  const cfg = legalCfg(), contact = cfg.contact || LEGAL_CONTACT;
+  sendLegalPage(res, 'Согласие на обработку персональных данных', `<p>Я свободно, своей волей и в своём интересе даю ${cfg.operatorName}, адрес: ${cfg.operatorAddress}, согласие на автоматизированную обработку моих данных: ника, email, ID аккаунта, аватара, профиля, оценок, списков, статистики, сообщений, комментариев, жалоб и технических данных.</p><p>Цели: создание и защита аккаунта, синхронизация, социальные функции, модерация, уведомления и техническая поддержка. Действия: сбор, запись, хранение, уточнение, использование, передача указанным в политике обработчикам, блокирование, удаление и уничтожение.</p><p>При отдельном выборе источника Kodik пользовательское устройство может передать IP-адрес и стандартные технические сведения сетевого запроса CDN, расположенному в Нидерландах, исключительно для доставки выбранного видеопотока. Ник, email, сообщения и токен AniPulse не передаются.</p><p>Согласие действует до удаления аккаунта или отзыва согласия. Отозвать его можно письмом на <a href="mailto:${contact}">${contact}</a> или удалением аккаунта. <a href="/privacy">Полная политика</a>.</p>`);
 }
 
 function handleRightHoldersPage(res) {
@@ -1278,6 +1569,9 @@ const server = http.createServer((req, res) => {
   });
 });
 async function route(req, res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   // CORS для веб-клиента (anipulsetv.ru + локальная разработка): браузерные fetch
   // из веб-версии иначе режутся. Разрешаем только наши источники, не «*».
   const origin = req.headers['origin'] || '';
@@ -1285,12 +1579,30 @@ async function route(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  if (req.url === '/.well-known/assetlinks.json') {
+    return jsonRes(res, 200, [{
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: {
+        namespace: 'android_app',
+        package_name: 'com.anipulse.app',
+        sha256_cert_fingerprints: ['4D:53:4C:C7:64:4D:F0:D7:3A:0A:4A:34:30:EA:BB:90:DB:FB:BB:30:8F:FC:4D:6F:F9:22:C1:32:B7:EE:AB:62'],
+      },
+    }]);
+  }
   if (req.url === '/privacy') return handlePrivacyPage(res);
+  if (req.url === '/terms') return handleTermsPage(res);
+  if (req.url === '/community-rules') return handleCommunityRulesPage(res);
+  if (req.url === '/personal-data-consent') return handleConsentPage(res);
   if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
+  if (req.url.startsWith('/auth/android-callback')) {
+    const html = legalPage('Возврат в приложение', '<h2>Вернитесь в AniPulse</h2><p>Если приложение не открылось автоматически, установите актуальную beta-версию и повторите вход.</p>');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(html);
+  }
   const dubsM = req.url.match(/^\/alapi\/kodik-dubs\?shikimoriId=(\d+)/);
   if (dubsM) return handleKodikDubs(dubsM[1], res);
   const findM = req.url.match(/^\/alapi\/kodik-find\?shikimoriId=(\d+)/);
@@ -1299,6 +1611,7 @@ async function route(req, res) {
   if (kodikM) return handleKodik(decodeURIComponent(kodikM[1]), kodikM[2], res);
   if (req.url.startsWith('/alapi/bugreport')) return handleBugReport(req, res);
   if (req.url.startsWith('/alapi/admin/')) return handleAdmin(req, res);
+  if (req.url.startsWith('/alapi/blocks') || req.url.startsWith('/alapi/reports')) return handleModeration(req, res);
   if (req.url.startsWith('/alapi/user')) return handleUserCard(req, res);
   if (req.url.startsWith('/alapi/profile')) return handleProfileUpdate(req, res);
   if (req.url.startsWith('/alapi/friends')) return handleFriends(req, res);
@@ -1314,7 +1627,7 @@ async function route(req, res) {
   if (req.url.startsWith('/alapi/auth/yandex')) return handleOAuthYandex(req, res, false);
   if (req.url.startsWith('/alapi/auth/vk/callback')) return handleOAuthVk(req, res, true);
   if (req.url.startsWith('/alapi/auth/vk')) return handleOAuthVk(req, res, false);
-  const authM = req.url.match(/^\/alapi\/auth\/([a-z]+)/);
+  const authM = req.url.match(/^\/alapi\/auth\/([a-z-]+)/);
   if (authM) return handleAuth(req, res, authM[1]);
   if (req.url.startsWith('/alapi/app-version')) return handleAppVersion(res);
   if (req.url.startsWith('/alapi/apk')) return handleApkDownload(res);
@@ -1339,10 +1652,18 @@ async function route(req, res) {
   try {
     const r = await fetchFollow(target);
     const isImg = String(r.ctype || '').startsWith('image/');
-    if (r.status === 200) cache.set(target, { ...r, exp: Date.now() + (isImg ? IMG_TTL_MS : TTL_MS) });
+    if (r.status === 200 && r.body.length <= 5 * 1024 * 1024) {
+      if (cache.size >= 300) cache.delete(cache.keys().next().value);
+      cache.set(target, { ...r, exp: Date.now() + (isImg ? IMG_TTL_MS : TTL_MS) });
+    }
     res.writeHead(r.status, { 'Content-Type': r.ctype, ...imgHeaders(r.ctype) }); res.end(r.body);
   } catch (e) { res.writeHead(502); res.end('gateway error: ' + e.message); }
 }
 // Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
-server.listen(8090, '127.0.0.1', () => console.log('AniPulse gateway on 127.0.0.1:8090'));
+const LISTEN_PORT = Number(process.env.ANIPULSE_PORT || 8090);
+server.listen(LISTEN_PORT, '127.0.0.1', () => console.log(`AniPulse gateway on 127.0.0.1:${LISTEN_PORT}`));
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
+server.maxRequestsPerSocket = 100;

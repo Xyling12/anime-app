@@ -75,7 +75,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun loadComments() {
         viewModelScope.launch {
-            runCatching { gateway.comments(episodeKey()) }.onSuccess { list ->
+            runCatching { gateway.comments(episodeKey(), settings.authToken?.let { "Bearer $it" }) }.onSuccess { list ->
                 _state.update { it.copy(comments = list) }
             }
         }
@@ -92,6 +92,21 @@ class PlayerViewModel @Inject constructor(
                 _state.update { it.copy(comments = it.comments + cm, commentSending = false) }
             }.onFailure {
                 _state.update { it.copy(commentSending = false) }
+            }
+        }
+    }
+
+    fun reportComment(comment: com.anipulse.app.data.ChatMessage) {
+        val token = settings.authToken ?: return
+        viewModelScope.launch {
+            runCatching {
+                gateway.report(
+                    "Bearer $token",
+                    com.anipulse.app.data.ReportRequest(
+                        type = "comment", targetId = comment.id.toString(), targetNick = comment.nick,
+                        animeId = episodeKey(), reason = "Нарушение правил комментариев",
+                    ),
+                )
             }
         }
     }

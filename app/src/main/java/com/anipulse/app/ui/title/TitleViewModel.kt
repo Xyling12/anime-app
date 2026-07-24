@@ -84,7 +84,7 @@ class TitleViewModel @Inject constructor(
             runCatching { gateway.rating(animeId, bearer()) }.onSuccess { r ->
                 _state.update { it.copy(ratingAvg = r.avg, ratingCount = r.count, myRating = r.my) }
             }
-            runCatching { gateway.comments(animeId.toString()) }.onSuccess { list ->
+            runCatching { gateway.comments(animeId.toString(), bearer()) }.onSuccess { list ->
                 _state.update { it.copy(comments = list) }
             }
         }
@@ -108,6 +108,29 @@ class TitleViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { gateway.deleteComment(b, animeId.toString(), id) }
                 .onSuccess { _state.update { st -> st.copy(comments = st.comments.filterNot { it.id == id }) } }
+        }
+    }
+
+    fun reportComment(comment: com.anipulse.app.data.ChatMessage) {
+        val b = bearer() ?: return
+        viewModelScope.launch {
+            runCatching {
+                gateway.report(
+                    b,
+                    com.anipulse.app.data.ReportRequest(
+                        type = "comment", targetId = comment.id.toString(), targetNick = comment.nick,
+                        animeId = animeId.toString(), reason = "Нарушение правил комментариев",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun blockCommentAuthor(nick: String) {
+        val b = bearer() ?: return
+        viewModelScope.launch {
+            runCatching { gateway.blockUser(b, com.anipulse.app.data.BlockRequest(nick)) }
+                .onSuccess { _state.update { state -> state.copy(comments = state.comments.filterNot { it.nick.equals(nick, true) }) } }
         }
     }
 

@@ -16,10 +16,27 @@ data class AnilibriaUpdate(
 )
 
 @Serializable
-data class RegisterRequest(val nick: String, val email: String, val password: String)
+data class RegisterRequest(
+    val nick: String,
+    val email: String,
+    val password: String,
+    val acceptTerms: Boolean = false,
+    val privacyConsent: Boolean = false,
+)
 
 @Serializable
-data class LoginRequest(val login: String, val password: String)
+data class LoginRequest(
+    val login: String,
+    val password: String,
+    val acceptTerms: Boolean = false,
+    val privacyConsent: Boolean = false,
+)
+
+@Serializable
+data class OAuthCodeRequest(val code: String)
+
+@Serializable
+data class OAuthLinkResponse(val code: String? = null, val error: String? = null)
 
 @Serializable
 data class AuthResponse(
@@ -160,6 +177,7 @@ data class UserCard(
     val commentsCount: Int = 0,
     val ratingsCount: Int = 0,
     val friendState: String? = null,
+    val blocked: Boolean = false,
 )
 
 @Serializable
@@ -203,6 +221,46 @@ data class ResetRequest(val email: String, val code: String, val password: Strin
 @Serializable
 data class FriendActionResponse(val state: String = "", val error: String? = null)
 
+@Serializable
+data class BlockRequest(val nick: String, val action: String = "block")
+
+@Serializable
+data class BlockResponse(val blocked: Boolean = false, val error: String? = null)
+
+@Serializable
+data class ReportRequest(
+    val type: String,
+    val targetId: String,
+    val targetNick: String? = null,
+    val animeId: String? = null,
+    val reason: String,
+    val details: String? = null,
+)
+
+@Serializable
+data class DeleteAccountRequest(val confirm: String = "DELETE")
+
+@Serializable
+data class ModerationReport(
+    val id: Long = 0,
+    val reporterNick: String = "",
+    val type: String = "",
+    val targetId: String = "",
+    val targetNick: String = "",
+    val animeId: String = "",
+    val reason: String = "",
+    val details: String = "",
+    val status: String = "open",
+    val createdAt: Long = 0,
+)
+
+@Serializable
+data class ResolveReportRequest(
+    val id: Long,
+    val status: String = "resolved",
+    val resolution: String = "Проверено модератором",
+)
+
 /** Собственные эндпоинты шлюза (не прокси). */
 interface GatewayApi {
     @GET("app-version")
@@ -217,11 +275,22 @@ interface GatewayApi {
     @retrofit2.http.POST("auth/login")
     suspend fun login(@retrofit2.http.Body body: LoginRequest): AuthResponse
 
+    @retrofit2.http.POST("auth/exchange")
+    suspend fun exchangeOAuthCode(@retrofit2.http.Body body: OAuthCodeRequest): AuthResponse
+
+    @retrofit2.http.POST("auth/link-code")
+    suspend fun createOAuthLinkCode(
+        @retrofit2.http.Header("Authorization") bearer: String,
+    ): OAuthLinkResponse
+
     @GET("auth/me")
     suspend fun me(@retrofit2.http.Header("Authorization") bearer: String): MeResponse
 
     @GET("chat")
-    suspend fun chat(@retrofit2.http.Query("after") after: Long = 0): List<ChatMessage>
+    suspend fun chat(
+        @retrofit2.http.Query("after") after: Long = 0,
+        @retrofit2.http.Header("Authorization") bearer: String? = null,
+    ): List<ChatMessage>
 
     @retrofit2.http.POST("chat")
     suspend fun sendChat(
@@ -230,7 +299,10 @@ interface GatewayApi {
     ): ChatMessage
 
     @GET("comments")
-    suspend fun comments(@retrofit2.http.Query("animeId") animeId: String): List<ChatMessage>
+    suspend fun comments(
+        @retrofit2.http.Query("animeId") animeId: String,
+        @retrofit2.http.Header("Authorization") bearer: String? = null,
+    ): List<ChatMessage>
 
     @retrofit2.http.POST("comments")
     suspend fun sendComment(
@@ -317,6 +389,21 @@ interface GatewayApi {
         @retrofit2.http.Body body: FriendActionRequest,
     ): FriendActionResponse
 
+    @GET("blocks")
+    suspend fun blocks(@retrofit2.http.Header("Authorization") bearer: String): List<String>
+
+    @retrofit2.http.POST("blocks")
+    suspend fun blockUser(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: BlockRequest,
+    ): BlockResponse
+
+    @retrofit2.http.POST("reports")
+    suspend fun report(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: ReportRequest,
+    ): kotlinx.serialization.json.JsonObject
+
     @retrofit2.http.POST("admin/delete-chat")
     suspend fun adminDeleteChat(
         @retrofit2.http.Header("Authorization") bearer: String,
@@ -357,6 +444,24 @@ interface GatewayApi {
 
     @retrofit2.http.POST("auth/logoutall")
     suspend fun logoutAll(@retrofit2.http.Header("Authorization") bearer: String): AuthResponse
+
+    @retrofit2.http.POST("auth/delete-account")
+    suspend fun deleteAccount(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: DeleteAccountRequest = DeleteAccountRequest(),
+    ): kotlinx.serialization.json.JsonObject
+
+    @GET("admin/reports")
+    suspend fun adminReports(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Query("status") status: String = "open",
+    ): List<ModerationReport>
+
+    @retrofit2.http.POST("admin/reports/resolve")
+    suspend fun resolveAdminReport(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: ResolveReportRequest,
+    ): kotlinx.serialization.json.JsonObject
 
     @retrofit2.http.POST("avatar")
     suspend fun setAvatar(
