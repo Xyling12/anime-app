@@ -46,8 +46,15 @@ class RootMenuViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            runCatching { gateway.appVersion() }.onSuccess { v ->
-                if (v.versionCode > com.anipulse.app.BuildConfig.VERSION_CODE && v.url.isNotBlank()) update.value = v
+            // Проверяем OTA не только при холодном запуске: серверный манифест
+            // мог обновиться, пока приложение было открыто.
+            while (true) {
+                runCatching { gateway.appVersion() }.onSuccess { v ->
+                    if (v.versionCode > com.anipulse.app.BuildConfig.VERSION_CODE && v.url.isNotBlank()) {
+                        update.value = v
+                    }
+                }
+                delay(60_000)
             }
         }
 

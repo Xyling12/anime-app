@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -40,8 +41,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +61,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.shikimori.ShikiAnime
 import com.anipulse.app.data.shikimori.posterPreviewOf
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -63,6 +70,16 @@ fun CatalogScreen(
     viewModel: CatalogViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    var showSearchSuggestions by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(state.searchQuery) {
+        showSearchSuggestions = state.searchQuery.isNotBlank()
+    }
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }.collectLatest { scrolling ->
+            if (scrolling) showSearchSuggestions = false
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         Surface(
@@ -99,7 +116,7 @@ fun CatalogScreen(
         }
 
         // Подсказки при поиске: первые совпадения, тап — открыть тайтл
-        if (state.searchQuery.isNotBlank() && state.items.isNotEmpty()) {
+        if (showSearchSuggestions && state.searchQuery.isNotBlank() && state.items.isNotEmpty()) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -111,7 +128,10 @@ fun CatalogScreen(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { onTitleClick(anime.id) }
+                            .clickable {
+                                showSearchSuggestions = false
+                                onTitleClick(anime.id)
+                            }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -144,17 +164,17 @@ fun CatalogScreen(
         ) {
             PillChip(
                 selected = state.status == null,
-                onClick = { viewModel.setFilter(status = null) },
+                onClick = { showSearchSuggestions = false; viewModel.setFilter(status = null) },
                 label = "Все",
             )
             PillChip(
                 selected = state.status == "ongoing",
-                onClick = { viewModel.setFilter(status = "ongoing") },
+                onClick = { showSearchSuggestions = false; viewModel.setFilter(status = "ongoing") },
                 label = "Онгоинги",
             )
             PillChip(
                 selected = state.order == "ranked",
-                onClick = { viewModel.setFilter(order = if (state.order == "ranked") "popularity" else "ranked") },
+                onClick = { showSearchSuggestions = false; viewModel.setFilter(order = if (state.order == "ranked") "popularity" else "ranked") },
                 label = "По рейтингу",
             )
             PillChip(
@@ -219,6 +239,7 @@ fun CatalogScreen(
             }
             else -> {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(2),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),

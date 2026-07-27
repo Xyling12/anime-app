@@ -22,21 +22,28 @@ class AnimeRepository @Inject constructor(
         kind: String? = null,
         genre: String? = null,
     ): List<ShikiAnime> = shikimori.animes(page = page, order = order, status = status, kind = kind, genre = genre)
+        .filter(ContentPolicy::allowed)
 
     suspend fun search(query: String): List<ShikiAnime> = shikimori.animes(search = query, limit = 30)
+        .filter(ContentPolicy::allowed)
 
     suspend fun genres() = shikimori.genres()
 
     /** Похожие тайтлы (Shikimori) — база рекомендаций «Для вас». */
     suspend fun similar(id: Long): List<ShikiAnime> = shikimori.similar(id)
+        .filter(ContentPolicy::allowed)
 
     /** Календарь выхода серий (Shikimori). */
     suspend fun calendar() = shikimori.calendar()
+        .filter { ContentPolicy.allowed(it.anime) }
 
     /** Свежие озвученные серии AniLibria (лента «Обновления»). */
     suspend fun anilibriaUpdates() = gateway.anilibriaUpdates()
 
-    suspend fun details(id: Long): ShikiAnimeDetails = shikimori.animeDetails(id)
+    suspend fun details(id: Long): ShikiAnimeDetails {
+        require(ContentPolicy.allowed(id)) { "Этот тайтл недоступен в текущей версии приложения" }
+        return shikimori.animeDetails(id)
+    }
 
     /** Все озвучки тайтла со всех источников. */
     suspend fun dubs(details: ShikiAnimeDetails): List<Dub> =

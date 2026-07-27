@@ -17,6 +17,27 @@ const UPSTREAMS = {
   aniskip:   'https://api.aniskip.com',
   anilistcdn:'https://s4.anilist.co',
 };
+
+// Контент, который нужно исключить из каталога для публикации APK в РФ.
+// Список составлен по замечанию модерации; ID включают сезоны/спецвыпуски.
+const BLOCKED_ANIME_IDS = new Set([
+  1535, 2994, // Death Note
+  226, 376,   // Elfen Lied
+  34542,      // Inuyashiki
+  22319, 27899, 36511, 37799, 30458, 31297 // Tokyo Ghoul и связанные сезоны/спецвыпуски
+]);
+function filterBlockedAnimePayload(path, body) {
+  if (!String(path).startsWith('/api/')) return null;
+  let data;
+  try { data = JSON.parse(body.toString()); } catch { return null; }
+  const isAnime = (x) => x && BLOCKED_ANIME_IDS.has(Number(x.id));
+  if (Array.isArray(data)) {
+    const filtered = data.filter(x => !isAnime(x));
+    return Buffer.from(JSON.stringify(filtered));
+  }
+  if (isAnime(data)) return Buffer.from(JSON.stringify({ error: 'not found' }));
+  return null;
+}
 const KODIK_API = 'https://kodik-api.com';
 const KODIK_TOKEN = process.env.KODIK_TOKEN || (() => {
   try { return fs.readFileSync(dataPath('kodik-token'), 'utf8').trim(); } catch (_) { return ''; }
@@ -1604,7 +1625,13 @@ async function route(req, res) {
     return res.end(html);
   }
   const dubsM = req.url.match(/^\/alapi\/kodik-dubs\?shikimoriId=(\d+)/);
-  if (dubsM) return handleKodikDubs(dubsM[1], res);
+  if (dubsM) {
+    if (BLOCKED_ANIME_IDS.has(Number(dubsM[1]))) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ error: 'not found' }));
+    }
+    return handleKodikDubs(dubsM[1], res);
+  }
   const findM = req.url.match(/^\/alapi\/kodik-find\?shikimoriId=(\d+)/);
   if (findM) return handleKodikFind(findM[1], res);
   const kodikM = req.url.match(/^\/alapi\/kodik\?link=([^&]+)(?:&episode=(\d+))?/);
@@ -1640,6 +1667,13 @@ async function route(req, res) {
   const base = UPSTREAMS[m[1]];
   if (!base) { res.writeHead(404); return res.end('unknown source'); }
   const target = base + '/' + m[2];
+  if (m[1] === 'shikimori') {
+    const detail = String(m[2]).match(/^api\/animes\/(\d+)(?:\/.*)?$/);
+    if (detail && BLOCKED_ANIME_IDS.has(Number(detail[1]))) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ error: 'not found' }));
+    }
+  }
   // Постеры не меняются по URL — неделя клиентского кэша (дисковый кэш Coil),
   // повторные заходы в каталог больше не тянут картинки по сети вообще.
   const imgHeaders = (ct) => String(ct || '').startsWith('image/')
@@ -1651,6 +1685,13 @@ async function route(req, res) {
   }
   try {
     const r = await fetchFollow(target);
+    if (m[1] === 'shikimori' && r.status === 200) {
+      const filtered = filterBlockedAnimePayload('/' + m[2], r.body);
+      if (filtered) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(filtered);
+      }
+    }
     const isImg = String(r.ctype || '').startsWith('image/');
     if (r.status === 200 && r.body.length <= 5 * 1024 * 1024) {
       if (cache.size >= 300) cache.delete(cache.keys().next().value);
