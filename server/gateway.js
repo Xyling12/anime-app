@@ -444,14 +444,23 @@ function authUserEarly(req) {
 }
 const SMTP_FILE = dataPath('smtp.json');
 let _mailer = null;
-function sendMail(to, subject, text) {
+function sendMail(to, subject, text, html) {
   try {
     if (!_mailer) {
       const cfg = JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8'));
       _mailer = require('nodemailer').createTransport({ host: 'smtp.yandex.ru', port: 465, secure: true, auth: { user: cfg.user, pass: cfg.pass } });
       _mailer._from = cfg.user;
     }
-    _mailer.sendMail({ from: 'AniPulse <' + _mailer._from + '>', to, subject, text }, () => {});
+    _mailer.sendMail({
+      from: 'AniPulse <' + _mailer._from + '>',
+      to,
+      subject,
+      text,
+      html,
+      headers: { 'X-Entity-Ref-ID': crypto.randomUUID() },
+    }, (error) => {
+      if (error) console.error('SMTP delivery failed:', error.responseCode || error.code || 'unknown');
+    });
   } catch (e) {}
 }
 const BUGREPORT_FILE = dataPath('bugreport.json');
@@ -485,7 +494,21 @@ async function handleBugReport(req, res) {
 function newVerifyCode(u) {
   u.verifyCode = String(crypto.randomInt(100000, 1000000));
   u.verifyExp = Date.now() + 15 * 60 * 1000;
-  sendMail(u.email, 'Код подтверждения AniPulse', 'Ваш код: ' + u.verifyCode + '\n\nКод действует 15 минут.');
+  const code = u.verifyCode;
+  sendMail(
+    u.email,
+    'Код подтверждения AniPulse',
+    'Ваш код подтверждения AniPulse: ' + code + '\n\nКод действует 15 минут.',
+    '<!doctype html><html><body style="margin:0;background:#f5f5f7;font-family:Arial,sans-serif;color:#18181b">' +
+      '<div style="max-width:520px;margin:32px auto;padding:28px;background:#fff;border-radius:16px">' +
+      '<h1 style="margin:0 0 16px;font-size:24px">Подтверждение почты</h1>' +
+      '<p style="margin:0 0 20px;line-height:1.5">Введите этот код в приложении AniPulse:</p>' +
+      '<div style="font-size:34px;font-weight:700;letter-spacing:8px;text-align:center;padding:18px;' +
+        'background:#f1f1f5;border-radius:12px">' + code + '</div>' +
+      '<p style="margin:20px 0 0;color:#71717a;font-size:14px;line-height:1.5">' +
+        'Код действует 15 минут. Если вы не запрашивали его, просто проигнорируйте письмо.</p>' +
+      '</div></body></html>',
+  );
 }
 
 async function handleAuth(req, res, path) {

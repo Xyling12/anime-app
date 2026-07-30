@@ -1,6 +1,7 @@
 package com.anipulse.app
 
 import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -64,6 +65,15 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             var showLaunch by remember { mutableStateOf(savedInstanceState == null) }
+            val betaNoticePrefs = remember {
+                getSharedPreferences("anipulse_onboarding", Context.MODE_PRIVATE)
+            }
+            var showBetaNotice by remember {
+                mutableStateOf(
+                    savedInstanceState == null &&
+                        !betaNoticePrefs.getBoolean("beta_notice_0_4_seen", false),
+                )
+            }
             LaunchedEffect(showLaunch) {
                 if (showLaunch) {
                     delay(1150)
@@ -91,6 +101,31 @@ class MainActivity : ComponentActivity() {
                 )
             }
             if (showLaunch) com.anipulse.app.ui.common.LaunchPulseOverlay()
+            if (!showLaunch && showBetaNotice) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("AniPulse находится в бета-режиме") },
+                    text = {
+                        Text(
+                            "В приложении ещё могут встречаться ошибки и недоработки. " +
+                                "Спасибо за понимание и помощь в развитии AniPulse!\n\n" +
+                                "Если захотите сообщить о проблеме, отправьте баг-репорт через профиль.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                betaNoticePrefs.edit()
+                                    .putBoolean("beta_notice_0_4_seen", true)
+                                    .apply()
+                                showBetaNotice = false
+                            },
+                        ) {
+                            Text("Понятно")
+                        }
+                    },
+                )
+            }
             }
         }
     }
