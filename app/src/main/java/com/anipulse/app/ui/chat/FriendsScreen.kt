@@ -45,6 +45,8 @@ import com.anipulse.app.data.SettingsStore
 import com.anipulse.app.data.UserCard
 import com.anipulse.app.ui.common.Avatar
 import com.anipulse.app.ui.common.UserCardSheet
+import com.anipulse.app.ui.common.ScreenPollingEffect
+import com.anipulse.app.ui.common.launchForegroundPolling
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -69,22 +71,21 @@ class FriendsViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(FriendsState(isLoggedIn = settings.authToken != null))
     val state: StateFlow<FriendsState> = _state.asStateFlow()
+    private val pollingActive = MutableStateFlow(false)
+    fun setPollingActive(active: Boolean) { pollingActive.value = active }
 
     init {
-        viewModelScope.launch {
-            while (true) {
-                refresh()
-                delay(10_000)
-            }
-        }
+        viewModelScope.launchForegroundPolling(10_000, pollingActive) { refreshNow() }
     }
 
     fun refresh() {
+        viewModelScope.launch { refreshNow() }
+    }
+
+    private suspend fun refreshNow() {
         val t = settings.authToken ?: return
-        viewModelScope.launch {
-            runCatching { gateway.friends("Bearer $t") }.onSuccess { r ->
-                _state.value = FriendsState(data = r, isLoggedIn = true, loading = false)
-            }
+        runCatching { gateway.friends("Bearer $t") }.onSuccess { r ->
+            _state.value = FriendsState(data = r, isLoggedIn = true, loading = false)
         }
     }
 
@@ -104,6 +105,7 @@ fun FriendsScreen(
     onWrite: (String) -> Unit,
     viewModel: FriendsViewModel = hiltViewModel(),
 ) {
+    ScreenPollingEffect(viewModel::setPollingActive)
     val state by viewModel.state.collectAsState()
     var cardNick by remember { mutableStateOf<String?>(null) }
 
@@ -194,7 +196,7 @@ private fun FriendRow(u: UserCard, onOpen: () -> Unit, trailing: @Composable () 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box {
-            Avatar(u.avatar, 42.dp, nick = u.nick)
+            Avatar(u.avatar, 42.dp, nick = u.nick, rev = u.avatarRev, accountId = u.userId)
             if (u.online) {
                 Box(
                     Modifier

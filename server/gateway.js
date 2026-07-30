@@ -4,6 +4,15 @@ const https = require('https');
 const fs = require('fs');
 const pathModule = require('path');
 const { URL } = require('url');
+const {
+  ByteLruCache,
+  assertSafeHttpsUrl,
+  createSafeLookup,
+  detectRasterContentType,
+  isSafeProxyContentType,
+  publicProxyPolicy,
+  safeProxyHeaders,
+} = require('./proxy-security');
 const DATA_DIR = process.env.ANIPULSE_DATA_DIR || '/opt/anipulse';
 const dataPath = (name) => pathModule.join(DATA_DIR, name);
 
@@ -43,7 +52,9 @@ const KODIK_TOKEN = process.env.KODIK_TOKEN || (() => {
   try { return fs.readFileSync(dataPath('kodik-token'), 'utf8').trim(); } catch (_) { return ''; }
 })();
 const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
-const cache = new Map();
+const cache = new ByteLruCache({ maxBytes: 32 * 1024 * 1024, maxEntries: 200 });
+const proxyInflight = new Map();
+const MAX_PROXY_INFLIGHT = 12;
 const posterCache = new Map();
 const TTL_MS = 60 * 1000;
 const IMG_TTL_MS = 30 * 60 * 1000; // картинки в серверном кэше держим дольше текста
@@ -54,25 +65,67 @@ const POSTER_TTL_MS = 24 * 60 * 60 * 1000;
 // часть запросов картинок начинала фейлиться (репорт «не все постеры грузятся»).
 setInterval(() => {
   const now = Date.now();
-  for (const [k, v] of cache) { if (v.exp <= now) cache.delete(k); }
+  cache.prune(now);
   for (const [k, v] of posterCache) { if (v.exp <= now) posterCache.delete(k); }
 }, 5 * 60 * 1000).unref();
 
-function fetchFollow(urlStr, { cookies = {}, redirects = 0, method = 'GET', body = null, headers = {}, maxBytes = 8 * 1024 * 1024 } = {}) {
+const safeLookup = createSafeLookup();
+function fetchFollow(urlStr, {
+  cookieJar = new Map(),
+  redirects = 0,
+  method = 'GET',
+  body = null,
+  headers = {},
+  maxBytes = 8 * 1024 * 1024,
+  redirectAllowed = (from, to) => from.hostname === to.hostname,
+} = {}) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error('too many redirects'));
-    const u = new URL(urlStr);
-    const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+    let u;
+    try { u = assertSafeHttpsUrl(urlStr); } catch (e) { return reject(e); }
+    const originCookies = cookieJar.get(u.origin) || {};
+    const cookieHeader = Object.entries(originCookies).map(([k, v]) => `${k}=${v}`).join('; ');
     const h = { 'User-Agent': UA, 'Accept': 'application/json, text/html, image/*, */*', ...headers };
     if (cookieHeader) h['Cookie'] = cookieHeader;
-    if (body) { h['Content-Type'] = 'application/x-www-form-urlencoded'; h['Content-Length'] = Buffer.byteLength(body); }
-    const req = https.request(u, { method, headers: h }, (res) => {
+    if (body) {
+      if (!Object.keys(h).some(key => key.toLowerCase() === 'content-type')) {
+        h['Content-Type'] = 'application/x-www-form-urlencoded';
+      }
+      h['Content-Length'] = Buffer.byteLength(body);
+    }
+    const req = https.request(u, { method, headers: h, lookup: safeLookup }, (res) => {
+      const updatedCookies = { ...originCookies };
       (res.headers['set-cookie'] || []).forEach((c) => {
         const [pair] = c.split(';'); const idx = pair.indexOf('=');
-        if (idx > 0) cookies[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+        if (idx > 0) updatedCookies[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
       });
+      cookieJar.set(u.origin, updatedCookies);
       if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
-        res.resume(); return resolve(fetchFollow(new URL(res.headers.location, u).toString(), { cookies, redirects: redirects+1 }));
+        let next;
+        try { next = assertSafeHttpsUrl(new URL(res.headers.location, u)); } catch (e) {
+          res.resume();
+          return reject(e);
+        }
+        if (!redirectAllowed(u, next)) {
+          res.resume();
+          return reject(new Error('upstream redirect host is not allowed'));
+        }
+        const keepMethod = res.statusCode === 307 || res.statusCode === 308;
+        const sameOrigin = next.origin === u.origin;
+        const nextHeaders = sameOrigin
+          ? headers
+          : Object.fromEntries(Object.entries(headers).filter(([key]) =>
+            !['authorization', 'cookie', 'proxy-authorization'].includes(key.toLowerCase())));
+        res.resume();
+        return resolve(fetchFollow(next.toString(), {
+          cookieJar,
+          redirects: redirects + 1,
+          method: keepMethod ? method : 'GET',
+          body: keepMethod ? body : null,
+          headers: nextHeaders,
+          maxBytes,
+          redirectAllowed,
+        }));
       }
       const ch = []; let received = 0;
       res.on('data', d => {
@@ -107,9 +160,10 @@ function kodikDecode(src) {
 // /alapi/kodik-find?shikimoriId=X -> {link, translation, quality} (маппинг по shikimori_id)
 async function handleKodikFind(id, res) {
   try {
-    const r = await fetchFollow(`${KODIK_API}/get-player?shikimoriID=${id}&token=${KODIK_TOKEN}&title=x`);
+    const r = await fetchFollow(`${KODIK_API}/get-player?shikimoriID=${id}&token=${KODIK_TOKEN}&title=x`, { maxBytes: 512 * 1024 });
+    const parsed = JSON.parse(r.body.toString());
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(r.body.toString());
+    res.end(JSON.stringify(parsed));
   } catch (e) { res.writeHead(502); res.end('kodik-find error: ' + e.message); }
 }
 
@@ -117,11 +171,16 @@ async function handleKodikFind(id, res) {
 // /alapi/kodik-dubs?shikimoriId=X -> [{title,type,link}] — ВСЕ озвучки Kodik (бесплатно).
 async function handleKodikDubs(id, res){
   try{
-    const r=await fetchFollow(`${KODIK_API}/get-player?shikimoriID=${id}&token=${KODIK_TOKEN}&title=x`);
+    const r=await fetchFollow(`${KODIK_API}/get-player?shikimoriID=${id}&token=${KODIK_TOKEN}&title=x`, { maxBytes: 512 * 1024 });
     const j=JSON.parse(r.body.toString());
     if(!j.found||!j.link){ res.writeHead(200,{'Content-Type':'application/json'}); return res.end('[]'); }
     const pageUrl=(j.link.startsWith('//')?'https:'+j.link:j.link);
-    const page=(await fetchFollow(pageUrl)).body.toString();
+    const pageHost = assertSafeHttpsUrl(pageUrl).hostname;
+    if (!isAllowedKodikHost(pageHost)) throw new Error('unexpected Kodik player host');
+    const page=(await fetchFollow(pageUrl, {
+      maxBytes: 2 * 1024 * 1024,
+      redirectAllowed: (_from, to) => isAllowedKodikHost(to.hostname),
+    })).body.toString();
     const opts=[...page.matchAll(/<option\b[^>]*?data-media-id="(\d+)"[^>]*?data-media-hash="([0-9a-f]+)"[^>]*?data-media-type="serial"[^>]*?data-title="([^"]*)"[^>]*?>/g)];
     const typeMatch=(v)=>{ const m=page.match(new RegExp('data-id="'+v+'"[^>]*data-translation-type="([a-z]+)"')); return m?m[1]:'voice'; };
     const seen=new Set(); const out=[];
@@ -146,14 +205,17 @@ function isAllowedKodikHost(host) {
 async function handleKodik(link, episode, res) {
   try {
     let pageUrl = link.startsWith('//') ? 'https:' + link : link;
-    const host0 = (pageUrl.match(/^https?:\/\/([^/]+)/) || [])[1] || '';
-    if (!isAllowedKodikHost(host0)) { res.writeHead(400); return res.end('kodik error: недопустимый хост'); }
+    const parsedPage = assertSafeHttpsUrl(pageUrl);
+    if (!isAllowedKodikHost(parsedPage.hostname)) { res.writeHead(400); return res.end('kodik error: недопустимый хост'); }
     if (episode) {
       const sep = pageUrl.includes('?') ? '&' : '?';
       pageUrl += `${sep}season=1&episode=${episode}`;
     }
-    const host = (pageUrl.match(/https?:\/\/([^/]+)\//) || [])[1] || 'kodikplayer.com';
-    const page = (await fetchFollow(pageUrl)).body.toString();
+    const host = parsedPage.hostname;
+    const page = (await fetchFollow(pageUrl, {
+      maxBytes: 2 * 1024 * 1024,
+      redirectAllowed: (_from, to) => isAllowedKodikHost(to.hostname),
+    })).body.toString();
     const vt = page.match(/vInfo\.type\s*=\s*'([^']+)'/);
     const vh = page.match(/vInfo\.hash\s*=\s*'([^']+)'/);
     const vi = page.match(/vInfo\.id\s*=\s*'([^']+)'/);
@@ -165,6 +227,8 @@ async function handleKodik(link, episode, res) {
     const ftor = (await fetchFollow('https://' + host + '/ftor', {
       method: 'POST', body: form.toString(),
       headers: { 'Referer': pageUrl, 'X-Requested-With': 'XMLHttpRequest' },
+      maxBytes: 2 * 1024 * 1024,
+      redirectAllowed: (_from, to) => isAllowedKodikHost(to.hostname),
     })).body.toString();
     const links = JSON.parse(ftor).links || {};
     const out = {};
@@ -181,52 +245,75 @@ async function handleKodik(link, episode, res) {
 // Jikan лимитирует ~3 запроса/сек: экран «Эфир» стреляет 20 постерами разом,
 // без очереди большинство получало 429 → пустые карточки. Очередь с зазором 400мс
 // + короткий негативный кэш (не долбим Jikan по тайтлам без постера).
-function anilistCover(id) {
-  return new Promise((resolve) => {
-    const body = JSON.stringify({ query: 'query($m:Int){Media(idMal:$m,type:ANIME){coverImage{large}}}', variables: { m: Number(id) } });
-    const req = https.request('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': UA, 'Content-Length': Buffer.byteLength(body) } }, (r) => {
-      const ch = []; r.on('data', d => ch.push(d));
-      r.on('end', () => { try { resolve(JSON.parse(Buffer.concat(ch).toString()).data.Media.coverImage.large || null); } catch (e) { resolve(null); } });
+async function anilistCover(id) {
+  try {
+    const body = JSON.stringify({
+      query: 'query($m:Int){Media(idMal:$m,type:ANIME){coverImage{large}}}',
+      variables: { m: Number(id) },
     });
-    req.on('error', () => resolve(null));
-    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
-    req.end(body);
-  });
+    const response = await fetchFollow('https://graphql.anilist.co', {
+      method: 'POST',
+      body,
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      maxBytes: 256 * 1024,
+    });
+    return JSON.parse(response.body.toString())?.data?.Media?.coverImage?.large || null;
+  } catch (_) {
+    return null;
+  }
 }
 let jikanChain = Promise.resolve();
-function handlePoster(id, res) {
-  const hit = posterCache.get(id);
-  if (hit && hit.exp > Date.now()) {
-    if (!hit.path) { res.writeHead(404); return res.end('no poster'); }
-    res.writeHead(302, { Location: hit.path }); return res.end();
+const posterPending = new Map();
+const MAX_POSTER_QUEUE = 64;
+function putPosterCache(id, value) {
+  if (!posterCache.has(id) && posterCache.size >= 1000) {
+    posterCache.delete(posterCache.keys().next().value);
   }
-  jikanChain = jikanChain.then(async () => {
+  posterCache.set(id, value);
+}
+function resolvePoster(id) {
+  const hit = posterCache.get(id);
+  if (hit && hit.exp > Date.now()) return Promise.resolve(hit.path);
+  const pending = posterPending.get(id);
+  if (pending) return pending;
+  if (posterPending.size >= MAX_POSTER_QUEUE) return Promise.reject(new Error('poster queue is full'));
+
+  const job = jikanChain.then(async () => {
+    const h2 = posterCache.get(id);
+    if (h2 && h2.exp > Date.now()) return h2.path;
+    let posterPath = null;
     try {
-      const h2 = posterCache.get(id); // мог появиться, пока ждали очередь
-      if (h2 && h2.exp > Date.now()) {
-        if (!h2.path) { res.writeHead(404); return res.end('no poster'); }
-        res.writeHead(302, { Location: h2.path }); return res.end();
-      }
-      let path = null;
-      try {
-        const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`);
-        const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url || null;
-        if (img) path = '/alapi/malcdn' + new URL(img).pathname;
-      } catch (e) {}
-      // Jikan/MAL нестабилен (массовые 504) — второй источник: AniList по тому же MAL id.
-      if (!path) {
-        const al = await anilistCover(id);
-        if (al) path = '/alapi/anilistcdn' + new URL(al).pathname;
-      }
-      if (!path) {
-        posterCache.set(id, { path: null, exp: Date.now() + 10 * 60 * 1000 });
-        res.writeHead(404); return res.end('no poster');
-      }
-      posterCache.set(id, { path, exp: Date.now() + POSTER_TTL_MS });
-      res.writeHead(302, { Location: path }); res.end();
-    } catch (e) { try { res.writeHead(502); res.end('poster error: ' + e.message); } catch (_) {} }
-    await new Promise(r => setTimeout(r, 400)); // зазор под лимит Jikan
+      const r = await fetchFollow(`${UPSTREAMS.jikan}/v4/anime/${id}`, { maxBytes: 512 * 1024 });
+      const img = JSON.parse(r.body.toString())?.data?.images?.jpg?.large_image_url || null;
+      if (img) posterPath = '/alapi/malcdn' + new URL(img).pathname;
+    } catch (e) {}
+    if (!posterPath) {
+      const al = await anilistCover(id);
+      if (al) posterPath = '/alapi/anilistcdn' + new URL(al).pathname;
+    }
+    putPosterCache(id, {
+      path: posterPath,
+      exp: Date.now() + (posterPath ? POSTER_TTL_MS : 10 * 60 * 1000),
+    });
+    await new Promise(r => setTimeout(r, 400));
+    return posterPath;
   });
+  jikanChain = job.catch(() => {});
+  posterPending.set(id, job);
+  job.then(() => posterPending.delete(id), () => posterPending.delete(id));
+  return job;
+}
+async function handlePoster(id, res) {
+  try {
+    const posterPath = await resolvePoster(id);
+    if (!posterPath) { res.writeHead(404); return res.end('no poster'); }
+    res.writeHead(302, { Location: posterPath });
+    return res.end();
+  } catch (e) {
+    const overloaded = e.message === 'poster queue is full';
+    res.writeHead(overloaded ? 503 : 502, overloaded ? { 'Retry-After': '10' } : {});
+    return res.end('poster error: ' + e.message);
+  }
 }
 
 // OTA-обновления: манифест версии + сам APK (кладётся в /opt/anipulse при релизе).
@@ -235,11 +322,21 @@ function handleAppVersion(res) {
   catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
 }
 function handleApkDownload(res) {
-  try {
-    const b = fs.readFileSync(dataPath('AniPulse-latest.apk'));
-    res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="AniPulse.apk"', 'Content-Length': b.length });
-    res.end(b);
-  } catch (e) { res.writeHead(404); res.end('no apk'); }
+  const apkPath = dataPath('AniPulse-latest.apk');
+  fs.stat(apkPath, (error, stat) => {
+    if (error || !stat.isFile()) { res.writeHead(404); return res.end('no apk'); }
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Disposition': 'attachment; filename="AniPulse.apk"',
+      'Content-Length': stat.size,
+    });
+    const stream = fs.createReadStream(apkPath);
+    stream.on('error', () => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    stream.pipe(res);
+  });
 }
 
 
@@ -375,7 +472,7 @@ async function handleBugReport(req, res) {
   const osVersion = sanitizeText(b && b.osVersion, 40);
   const user = authUserEarly(req);
   const lines = [
-    user ? 'Аккаунт: ' + user.nick + ' (' + user.email + ')' : 'Аккаунт: гость',
+    user ? 'Аккаунт ID: ' + user.id : 'Аккаунт: гость',
     contact ? 'Контакт для ответа: ' + contact : null,
     device ? 'Устройство: ' + device : null,
     osVersion ? 'Android: ' + osVersion : null,
@@ -535,7 +632,16 @@ async function handleAuth(req, res, path) {
     if (!userId) return jsonRes(res, 401, { error: 'Не авторизован' });
     const user = loadUsers().users.find(u => u.id === userId);
     if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
-    return jsonRes(res, 200, { nick: user.nick, email: user.email, avatar: avatarOf(user), linked: Object.keys(user.linked || {}), emailVerified: user.emailVerified !== false, admin: !!user.admin });
+    return jsonRes(res, 200, {
+      userId: user.id,
+      nick: user.nick,
+      email: user.email,
+      avatar: avatarOf(user),
+      avatarRev: user.avatarRev || 0,
+      linked: Object.keys(user.linked || {}),
+      emailVerified: user.emailVerified !== false,
+      admin: !!user.admin,
+    });
   }
   jsonRes(res, 404, { error: 'not found' });
 }
@@ -556,6 +662,21 @@ function loadJson(f, def) {
   try { return JSON.parse(raw); } catch (e) { throw new Error(`corrupt json store ${f}: ${e.message}`); }
 }
 function saveJson(f, obj) { fs.writeFileSync(f + '.tmp', JSON.stringify(obj)); fs.renameSync(f + '.tmp', f); }
+const REPORT_RETENTION_MS = 3 * 365 * 24 * 60 * 60 * 1000;
+function loadReports() {
+  const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+  const cutoff = Date.now() - REPORT_RETENTION_MS;
+  const retained = (all.items || []).filter(report => !Number(report.createdAt) || Number(report.createdAt) >= cutoff);
+  if (retained.length !== (all.items || []).length) {
+    all.items = retained;
+    saveJson(REPORTS_FILE, all);
+  }
+  return all;
+}
+try { loadReports(); } catch (e) { console.error('report retention cleanup failed:', e.message); }
+setInterval(() => {
+  try { loadReports(); } catch (e) { console.error('report retention cleanup failed:', e.message); }
+}, 24 * 60 * 60 * 1000).unref();
 function authUser(req) {
   const userId = verifyToken((req.headers['authorization'] || '').replace('Bearer ', ''));
   if (!userId) return null;
@@ -568,6 +689,13 @@ function blocksDb() { return loadJson(BLOCKS_FILE, {}); }
 function blockedIds(db, userId) { return (db[String(userId)] || []).map(Number); }
 function hasBlocked(db, userId, targetId) { return blockedIds(db, userId).includes(Number(targetId)); }
 function blockedEither(db, a, b) { return hasBlocked(db, a, b) || hasBlocked(db, b, a); }
+function bilateralHiddenIds(db, viewerId) {
+  const hidden = new Set(blockedIds(db, viewerId));
+  for (const [otherId, ids] of Object.entries(db)) {
+    if ((ids || []).map(Number).includes(Number(viewerId))) hidden.add(Number(otherId));
+  }
+  return hidden;
+}
 function userIdByNick(nick) {
   const u = loadUsers().users.find(x => x.nick && x.nick.toLowerCase() === String(nick || '').toLowerCase());
   return u ? u.id : null;
@@ -575,10 +703,21 @@ function userIdByNick(nick) {
 
 function deleteAccountData(user) {
   const db = loadUsers();
-  db.users = db.users.filter(u => u.id !== user.id); saveUsers(db);
+  db.users = db.users.filter(u => u.id !== user.id);
 
   const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
-  chat.messages = chat.messages.filter(m => m.userId !== user.id); saveJson(CHAT_FILE, chat);
+  chat.messages = chat.messages.filter(m => m.userId !== user.id);
+  for (const message of chat.messages) {
+    if (message.replyTo && (
+      Number(message.replyTo.userId) === user.id ||
+      String(message.replyTo.nick || '').toLowerCase() === String(user.nick).toLowerCase()
+    )) {
+      message.replyTo.userId = null;
+      message.replyTo.nick = 'Удалённый аккаунт';
+      message.replyTo.text = 'Сообщение удалено';
+    }
+  }
+  saveJson(CHAT_FILE, chat);
 
   const comments = loadJson(COMMENTS_FILE, {});
   for (const key of Object.keys(comments)) comments[key] = comments[key].filter(c => c.userId !== user.id);
@@ -596,24 +735,66 @@ function deleteAccountData(user) {
 
   const friends = friendsDb(); delete friends[user.id];
   for (const value of Object.values(friends)) {
-    value.friends = (value.friends || []).filter(id => id !== user.id);
-    value.incoming = (value.incoming || []).filter(id => id !== user.id);
+    value.friends = (value.friends || []).filter(id => Number(id) !== user.id);
+    value.incoming = (value.incoming || []).filter(id => Number(id) !== user.id);
   }
   saveJson(FRIENDS_FILE, friends);
 
   const notifications = loadJson(NOTIF_FILE, { seq: 0, byUser: {} });
-  delete notifications.byUser[user.id]; saveJson(NOTIF_FILE, notifications);
+  delete notifications.byUser[user.id];
+  for (const ownerId of Object.keys(notifications.byUser)) {
+    notifications.byUser[ownerId] = (notifications.byUser[ownerId] || []).filter(n =>
+      Number(n.fromUserId) !== user.id &&
+      String(n.from || '').toLowerCase() !== String(user.nick).toLowerCase()
+    );
+  }
+  saveJson(NOTIF_FILE, notifications);
 
   const blocks = blocksDb(); delete blocks[user.id];
   for (const key of Object.keys(blocks)) blocks[key] = blockedIds(blocks, key).filter(id => id !== user.id);
   saveJson(BLOCKS_FILE, blocks);
 
-  const reports = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+  const reports = loadReports();
   for (const r of reports.items) {
     if (r.reporterId === user.id) { r.reporterId = null; r.reporterNick = 'Удалённый аккаунт'; }
-    if (r.targetNick && r.targetNick.toLowerCase() === String(user.nick).toLowerCase()) r.targetNick = 'Удалённый аккаунт';
+    const targetsUser = reportedUserId(r) === user.id ||
+      (r.targetNick && r.targetNick.toLowerCase() === String(user.nick).toLowerCase());
+    if (targetsUser) {
+      r.targetUserId = null;
+      r.targetNick = 'Удалённый аккаунт';
+      if (String(r.targetId || '').toLowerCase() === String(user.nick).toLowerCase()) {
+        r.targetId = 'Удалённый аккаунт';
+      }
+      if (r.snapshot) {
+        r.snapshot.userId = null;
+        if (String(r.snapshot.nick || '').toLowerCase() === String(user.nick).toLowerCase()) {
+          r.snapshot.nick = 'Удалённый аккаунт';
+        }
+        if (String(r.snapshot.from || '').toLowerCase() === String(user.nick).toLowerCase()) {
+          r.snapshot.from = 'Удалённый аккаунт';
+        }
+        if (String(r.snapshot.to || '').toLowerCase() === String(user.nick).toLowerCase()) {
+          r.snapshot.to = 'Удалённый аккаунт';
+        }
+      }
+    }
+    if (String(r.resolvedBy || '').toLowerCase() === String(user.nick).toLowerCase()) {
+      r.resolvedBy = 'Удалённый аккаунт';
+    }
   }
   saveJson(REPORTS_FILE, reports);
+
+  const oauth = oauthStateAll();
+  for (const key of Object.keys(oauth.codes)) {
+    if (Number(oauth.codes[key]?.userId) === user.id) delete oauth.codes[key];
+  }
+  oauthStateSweepSave(oauth);
+  lastSeenMem.delete(user.id);
+  for (const key of [...userHits.keys()]) if (key.endsWith(':' + user.id)) userHits.delete(key);
+
+  // Save the account removal last. If cleanup of any auxiliary store fails, the
+  // token remains usable so the user can retry instead of being left half-deleted.
+  saveUsers(db);
   try { fs.unlinkSync(`${AVATARS_DIR}/${user.id}.img`); } catch (_) {}
 }
 // ===== Соцчасть v2: уведомления, @упоминания, ЛС =====
@@ -630,6 +811,21 @@ function addNotification(toUserId, notif) {
   saveJson(NOTIF_FILE, all);
 }
 
+function removeInteractionNotifications(a, b) {
+  const all = loadJson(NOTIF_FILE, { seq: 0, byUser: {} });
+  const users = loadUsers().users;
+  const senderId = n => Number(n.fromUserId)
+    || users.find(u => u.nick && u.nick.toLowerCase() === String(n.from || '').toLowerCase())?.id
+    || 0;
+  for (const [ownerId, otherId] of [[a, b], [b, a]]) {
+    const list = all.byUser[ownerId] || [];
+    all.byUser[ownerId] = list.filter(n =>
+      n.type === 'system' || senderId(n) !== Number(otherId)
+    );
+  }
+  saveJson(NOTIF_FILE, all);
+}
+
 // Разбирает @ники в тексте и шлёт уведомления существующим пользователям.
 function notifyMentions(text, fromUser, source) {
   const nicks = [...new Set((text.match(/@[\w.-]{2,24}/g) || []).map(s => s.slice(1).toLowerCase()))];
@@ -638,8 +834,11 @@ function notifyMentions(text, fromUser, source) {
   const blocks = blocksDb();
   for (const n of nicks) {
     const u = users.find(x => x.nick && x.nick.toLowerCase() === n);
-    if (!u || u.id === fromUser.id || blockedEither(blocks, u.id, fromUser.id)) continue;
-    addNotification(u.id, { type: 'mention', from: fromUser.nick, text: String(text).slice(0, 200), source });
+    if (!u || u.id === fromUser.id || isBanned(u) || blockedEither(blocks, u.id, fromUser.id)) continue;
+    addNotification(u.id, {
+      type: 'mention', from: fromUser.nick, fromUserId: fromUser.id,
+      text: String(text).slice(0, 200), source,
+    });
   }
 }
 
@@ -656,7 +855,16 @@ async function handleNotifications(req, res) {
   }
   if (req.method === 'GET') {
     const after = Number((req.url.match(/[?&]after=(\d+)/) || [])[1] || 0);
-    return jsonRes(res, 200, list.filter(n => n.id > after).slice(-50));
+    const users = loadUsers().users;
+    const blocks = blocksDb();
+    const visible = list.filter(n => {
+      if (n.type === 'system') return true;
+      const fromUserId = Number(n.fromUserId)
+        || users.find(u => u.nick && u.nick.toLowerCase() === String(n.from || '').toLowerCase())?.id
+        || 0;
+      return !fromUserId || !blockedEither(blocks, user.id, fromUserId);
+    });
+    return jsonRes(res, 200, visible.filter(n => n.id > after).slice(-50));
   }
   jsonRes(res, 405, { error: 'method' });
 }
@@ -673,6 +881,7 @@ async function handleDm(req, res) {
     const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const users = loadUsers().users;
     const blocks = blocksDb();
+    const friendIds = new Set(friendsOf(friendsDb(), user.id).friends.map(Number));
     const out = [];
     for (const [key, msgs] of Object.entries(all.threads)) {
       const ids = key.split(':').map(Number);
@@ -683,9 +892,11 @@ async function handleDm(req, res) {
       const last = msgs[msgs.length - 1];
       const lastRead = (all.lastRead[key] || {})[user.id] || 0;
       out.push({
+        withUserId: other ? other.id : 0,
         withNick: other ? other.nick : '?',
         withAvatar: other ? avatarOf(other) : 0,
-        withOnline: other ? isOnline(other) : false,
+        withAvatarRev: other ? (other.avatarRev || 0) : 0,
+        withOnline: other && friendIds.has(otherId) ? isOnline(other) : false,
         lastText: last.text, lastAt: last.at,
         unread: msgs.filter(m => m.id > lastRead && m.from !== user.nick).length,
       });
@@ -720,6 +931,7 @@ async function handleDm(req, res) {
     const other = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === toNick.toLowerCase());
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Нельзя писать себе' });
+    if (isBanned(other)) return jsonRes(res, 403, { error: 'Аккаунт получателя временно недоступен' });
     if (blockedEither(blocksDb(), user.id, other.id)) return jsonRes(res, 403, { error: 'Переписка недоступна: один из вас заблокировал другого' });
     const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
     const key = dmKey(user.id, other.id);
@@ -728,7 +940,9 @@ async function handleDm(req, res) {
     list.push(msg);
     all.threads[key] = list.slice(-500);
     saveJson(DM_FILE, all);
-    addNotification(other.id, { type: 'dm', from: user.nick, text: String(text).slice(0, 200) });
+    addNotification(other.id, {
+      type: 'dm', from: user.nick, fromUserId: user.id, text: String(text).slice(0, 200),
+    });
     return jsonRes(res, 200, msg);
   }
   jsonRes(res, 405, { error: 'method' });
@@ -759,11 +973,14 @@ function isOnline(u) { return (u.lastSeen || 0) > Date.now() - ONLINE_MS; }
 function friendsDb() { return loadJson(FRIENDS_FILE, {}); }
 function friendsOf(db, id) { return db[id] || (db[id] = { friends: [], incoming: [] }); }
 
-function publicUser(u) {
+function publicUser(u, { showPresence = false } = {}) {
+  const banned = isBanned(u);
   return {
-    nick: u.nick, avatar: avatarOf(u), bio: u.bio || '',
-    createdAt: u.createdAt || null, lastSeen: u.lastSeen || null, online: isOnline(u),
-    favoriteGenre: u.favoriteGenre || null, stats: u.stats || null,
+    userId: u.id, nick: u.nick, avatar: banned ? 0 : avatarOf(u),
+    avatarRev: banned ? 0 : (u.avatarRev || 0), bio: banned ? '' : (u.bio || ''),
+    createdAt: u.createdAt || null, lastSeen: null, online: showPresence && !banned && isOnline(u),
+    favoriteGenre: banned ? null : (u.favoriteGenre || null), stats: u.stats || null,
+    restricted: banned,
   };
 }
 
@@ -772,21 +989,43 @@ async function handleUserCard(req, res) {
   const db = loadUsers();
   const u = db.users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
   if (!u) return jsonRes(res, 404, { error: 'Пользователь не найден' });
-  const out = publicUser(u);
+  const me = authUser(req);
+  const blocks = blocksDb();
+  if (me && me.id !== u.id && blockedEither(blocks, me.id, u.id)) {
+    return jsonRes(res, 200, {
+      userId: u.id,
+      nick: u.nick,
+      avatar: 0,
+      avatarRev: 0,
+      bio: '',
+      lastSeen: null,
+      online: false,
+      friendState: 'none',
+      blocked: hasBlocked(blocks, me.id, u.id),
+      blockedByTarget: hasBlocked(blocks, u.id, me.id),
+      restricted: true,
+    });
+  }
+  let areFriends = false;
+  if (me && me.id !== u.id) {
+    const fdb = friendsDb();
+    areFriends = friendsOf(fdb, me.id).friends.includes(u.id);
+  }
+  const out = publicUser(u, { showPresence: !!me && (me.id === u.id || areFriends) });
   // активность в соцчасти
   const comments = loadJson(COMMENTS_FILE, {});
   out.commentsCount = Object.values(comments).reduce((a, list) => a + list.filter(c => c.userId === u.id).length, 0);
   const ratings = loadJson(RATINGS_FILE, {});
   out.ratingsCount = Object.values(ratings).filter(v => v[u.id] != null).length;
   // отношения с запрашивающим
-  const me = authUser(req);
   if (me && me.id !== u.id) {
     const fdb = friendsDb();
     const mine = friendsOf(fdb, me.id), theirs = friendsOf(fdb, u.id);
     out.friendState = mine.friends.includes(u.id) ? 'friends'
       : mine.incoming.includes(u.id) ? 'incoming'
       : theirs.incoming.includes(me.id) ? 'outgoing' : 'none';
-    out.blocked = hasBlocked(blocksDb(), me.id, u.id);
+    out.blocked = false;
+    out.blockedByTarget = false;
   } else if (me) out.friendState = 'self';
   return jsonRes(res, 200, out);
 }
@@ -795,6 +1034,7 @@ async function handleProfileUpdate(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'auth' });
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  if (isBanned(user)) return jsonRes(res, 403, { error: banMessage(user) });
   if (tooMany(userHits, 'profile:' + user.id, 20, 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
   const b = await readBody(req);
   const db = loadUsers();
@@ -821,7 +1061,11 @@ async function handleFriends(req, res) {
   if (req.method === 'GET') {
     const fdb = friendsDb();
     const mine = friendsOf(fdb, user.id);
-    const toCard = id => { const u = db.users.find(x => x.id === id); return u ? publicUser(u) : null; };
+    const hidden = bilateralHiddenIds(blocksDb(), user.id);
+    const toCard = id => {
+      const u = db.users.find(x => x.id === id);
+      return u && !hidden.has(Number(id)) ? publicUser(u, { showPresence: true }) : null;
+    };
     const friends = mine.friends.map(toCard).filter(Boolean)
       .sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
     const incoming = mine.incoming.map(toCard).filter(Boolean);
@@ -838,6 +1082,15 @@ async function handleFriends(req, res) {
     if (!other) return jsonRes(res, 404, { error: 'Пользователь не найден' });
     if (other.id === user.id) return jsonRes(res, 400, { error: 'Это вы' });
     const theirs = friendsOf(fdb, other.id);
+    const isContactAction = req.url.startsWith('/alapi/friends/add')
+      || req.url.startsWith('/alapi/friends/accept');
+    if (isContactAction && isBanned(user)) return jsonRes(res, 403, { error: banMessage(user) });
+    if (isContactAction && isBanned(other)) {
+      return jsonRes(res, 403, { error: 'Аккаунт пользователя временно недоступен' });
+    }
+    if (isContactAction && blockedEither(blocksDb(), user.id, other.id)) {
+      return jsonRes(res, 403, { error: 'Взаимодействие недоступно из-за блокировки' });
+    }
     // Идемпотентное добавление: двойной тап/повторный запрос не плодит дубли в списках.
     const addOnce = (arr, id) => { if (!arr.includes(id)) arr.push(id); };
     if (req.url.startsWith('/alapi/friends/add')) {
@@ -848,14 +1101,19 @@ async function handleFriends(req, res) {
         addOnce(mine.friends, other.id); addOnce(theirs.friends, user.id);
         theirs.incoming = theirs.incoming.filter(i => i !== user.id);
         saveJson(FRIENDS_FILE, fdb);
-        addNotification(other.id, { type: 'friend_accept', from: user.nick, text: 'Теперь вы друзья!' });
+        addNotification(other.id, {
+          type: 'friend_accept', from: user.nick, fromUserId: user.id, text: 'Теперь вы друзья!',
+        });
         return jsonRes(res, 200, { state: 'friends' });
       }
       if (!theirs.incoming.includes(user.id)) {
         if (tooMany(userHits, 'fr:' + user.id, 10, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро' });
         theirs.incoming.push(user.id);
         saveJson(FRIENDS_FILE, fdb);
-        addNotification(other.id, { type: 'friend_request', from: user.nick, text: 'Хочет добавить вас в друзья' });
+        addNotification(other.id, {
+          type: 'friend_request', from: user.nick, fromUserId: user.id,
+          text: 'Хочет добавить вас в друзья',
+        });
       }
       return jsonRes(res, 200, { state: 'outgoing' });
     }
@@ -865,7 +1123,10 @@ async function handleFriends(req, res) {
       addOnce(mine.friends, other.id); addOnce(theirs.friends, user.id);
       theirs.incoming = theirs.incoming.filter(i => i !== user.id);
       saveJson(FRIENDS_FILE, fdb);
-      addNotification(other.id, { type: 'friend_accept', from: user.nick, text: 'Принял(а) вашу заявку — теперь вы друзья!' });
+      addNotification(other.id, {
+        type: 'friend_accept', from: user.nick, fromUserId: user.id,
+        text: 'Принял(а) вашу заявку — теперь вы друзья!',
+      });
       return jsonRes(res, 200, { state: 'friends' });
     }
     if (req.url.startsWith('/alapi/friends/decline')) {
@@ -914,18 +1175,163 @@ function banMessage(u) {
   return 'Вы заблокированы до ' + new Date(u.bannedUntil).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
 }
 
+function removeReportedContent(report) {
+  const targetId = Number(report.targetId) || 0;
+  if (report.type === 'chat') {
+    const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
+    const before = chat.messages.length;
+    chat.messages = chat.messages.filter(m => m.id !== targetId);
+    saveJson(CHAT_FILE, chat);
+    return before - chat.messages.length;
+  }
+  if (report.type === 'comment') {
+    const animeId = String(report.animeId || '');
+    const all = loadJson(COMMENTS_FILE, {});
+    const list = all[animeId] || [];
+    all[animeId] = list.filter(c => c.id !== targetId);
+    saveJson(COMMENTS_FILE, all);
+    return list.length - all[animeId].length;
+  }
+  if (report.type === 'dm') {
+    const all = loadJson(DM_FILE, { seq: 0, threads: {}, lastRead: {} });
+    let removed = 0;
+    for (const [key, messages] of Object.entries(all.threads || {})) {
+      const before = messages.length;
+      all.threads[key] = messages.filter(m => m.id !== targetId);
+      removed += before - all.threads[key].length;
+    }
+    saveJson(DM_FILE, all);
+    return removed;
+  }
+  if (report.type === 'profile') {
+    const targetUserId = Number(report.targetUserId || report.snapshot?.userId) || 0;
+    if (!targetUserId) return 0;
+    const db = loadUsers();
+    const target = db.users.find(x => x.id === targetUserId);
+    if (!target) return 0;
+    target.bio = '';
+    target.favoriteGenre = '';
+    target.customAvatar = false;
+    target.avatar = 0;
+    target.avatarRev = (target.avatarRev || 0) + 1;
+    try { fs.unlinkSync(pathModule.join(AVATARS_DIR, `${target.id}.img`)); } catch (_) {}
+    saveUsers(db);
+    return 1;
+  }
+  return 0;
+}
+
+function reportedUserId(report) {
+  return Number(report.targetUserId || report.snapshot?.userId) || 0;
+}
+
+function banReportedUser(report, bannedUntil) {
+  const targetUserId = reportedUserId(report);
+  if (!targetUserId) return { error: 'В старой жалобе нет надёжного ID пользователя — автоматический бан запрещён' };
+  const db = loadUsers();
+  const target = db.users.find(x => x.id === targetUserId);
+  if (!target) return { error: 'Исходный аккаунт уже удалён' };
+  if (target.admin) return { error: 'Нельзя забанить администратора' };
+  target.bannedUntil = Math.max(Number(target.bannedUntil) || 0, bannedUntil);
+  saveUsers(db);
+  const notifications = loadJson(NOTIF_FILE, { seq: 0, byUser: {} });
+  const existing = notifications.byUser[target.id] || [];
+  if (!existing.some(n => n.moderationReportId === report.id)) {
+    addNotification(target.id, {
+      type: 'system',
+      from: 'AniPulse',
+      text: 'Ваш аккаунт временно ограничен по результатам жалобы',
+      moderationReportId: report.id,
+    });
+  }
+  return { bannedUntil: target.bannedUntil };
+}
+
 async function handleAdmin(req, res) {
   const user = authUser(req);
   if (!user || !user.admin) return jsonRes(res, 403, { error: 'Только для администратора' });
   if (req.method === 'GET' && req.url.startsWith('/alapi/admin/reports')) {
-    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const all = loadReports();
     const status = new URL('http://x' + req.url).searchParams.get('status') || 'open';
     return jsonRes(res, 200, all.items.filter(x => status === 'all' || x.status === status).slice(-200).reverse());
   }
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
   const b = await readBody(req);
+  if (req.url.startsWith('/alapi/admin/reports/action')) {
+    const decisions = {
+      reject: { status: 'rejected', remove: false, banHours: 0 },
+      resolve: { status: 'resolved', remove: false, banHours: 0 },
+      remove: { status: 'resolved', remove: true, banHours: 0 },
+      ban_24h: { status: 'resolved', remove: false, banHours: 24 },
+      remove_ban_24h: { status: 'resolved', remove: true, banHours: 24 },
+      remove_ban_168h: { status: 'resolved', remove: true, banHours: 168 },
+    };
+    const decisionName = String((b && b.action) || '');
+    const decision = decisions[decisionName];
+    if (!decision) return jsonRes(res, 400, { error: 'Неизвестное решение по жалобе' });
+    const all = loadReports();
+    const report = all.items.find(x => x.id === Number(b && b.id));
+    if (!report) return jsonRes(res, 404, { error: 'Жалоба не найдена' });
+    if (report.status !== 'open') {
+      if (report.action?.name === decisionName && report.action?.state === 'done') {
+        return jsonRes(res, 200, {
+          ok: true,
+          removed: report.action.removed || 0,
+          bannedUntil: report.action.bannedUntil || 0,
+          repeated: true,
+        });
+      }
+      return jsonRes(res, 409, { error: 'Жалоба уже обработана' });
+    }
+    if (report.action?.state === 'processing' && report.action.name !== decisionName) {
+      return jsonRes(res, 409, { error: 'По жалобе уже выполняется другое решение' });
+    }
+
+    const plannedBannedUntil = decision.banHours > 0
+      ? (report.action?.plannedBannedUntil || Date.now() + decision.banHours * 3600 * 1000)
+      : 0;
+    if (decision.banHours > 0) {
+      const targetUserId = reportedUserId(report);
+      const target = targetUserId && loadUsers().users.find(x => x.id === targetUserId);
+      if (!targetUserId) return jsonRes(res, 400, { error: 'В старой жалобе нет надёжного ID пользователя — автоматический бан запрещён' });
+      if (!target) return jsonRes(res, 400, { error: 'Исходный аккаунт уже удалён' });
+      if (target.admin) return jsonRes(res, 400, { error: 'Нельзя забанить администратора' });
+    }
+
+    report.action = {
+      ...(report.action || {}),
+      name: decisionName,
+      state: 'processing',
+      plannedBannedUntil,
+      startedAt: report.action?.startedAt || Date.now(),
+    };
+    saveJson(REPORTS_FILE, all);
+
+    let removed = 0;
+    let bannedUntil = 0;
+    if (decision.banHours > 0) {
+      const ban = banReportedUser(report, plannedBannedUntil);
+      if (ban.error) return jsonRes(res, 400, { error: ban.error });
+      bannedUntil = ban.bannedUntil;
+    }
+    if (decision.remove) removed = removeReportedContent(report);
+
+    report.status = decision.status;
+    report.resolvedAt = Date.now();
+    report.resolvedBy = user.nick;
+    report.resolution = sanitizeText(b && b.resolution, 300) || decisionName;
+    report.action = {
+      ...report.action,
+      state: 'done',
+      removed,
+      bannedUntil,
+      completedAt: report.resolvedAt,
+    };
+    saveJson(REPORTS_FILE, all);
+    return jsonRes(res, 200, { ok: true, removed, bannedUntil });
+  }
   if (req.url.startsWith('/alapi/admin/reports/resolve')) {
-    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const all = loadReports();
     const report = all.items.find(x => x.id === Number(b && b.id));
     if (!report) return jsonRes(res, 404, { error: 'Жалоба не найдена' });
     report.status = ['resolved', 'rejected'].includes(b && b.status) ? b.status : 'resolved';
@@ -974,13 +1380,29 @@ async function handleChat(req, res) {
     // Аватар отдаём АКТУАЛЬНЫЙ по нику, а не снапшот на момент отправки —
     // иначе после смены аватарки старые сообщения показывали старую.
     const avByNick = {};
-    for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
+    for (const u of loadUsers().users) {
+      if (u.nick) avByNick[u.nick.toLowerCase()] = { avatar: avatarOf(u), avatarRev: u.avatarRev || 0, userId: u.id };
+    }
     const viewer = authUser(req);
-    const hidden = viewer ? blockedIds(blocksDb(), viewer.id) : [];
-    const out = chat.messages.filter(m => m.id > after && !hidden.includes(Number(m.userId))).slice(-100).map(({ userId, ...rest }) => ({
-      ...rest,
-      avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
-    }));
+    const hidden = viewer ? bilateralHiddenIds(blocksDb(), viewer.id) : new Set();
+    const usersByNick = new Map(loadUsers().users.filter(u => u.nick).map(u => [u.nick.toLowerCase(), u.id]));
+    const out = chat.messages.filter(m => m.id > after && !hidden.has(Number(m.userId))).slice(-100).map(({ userId, ...rest }) => {
+      const replyUserId = Number(rest.replyTo?.userId)
+        || usersByNick.get(String(rest.replyTo?.nick || '').toLowerCase())
+        || 0;
+      const replyTo = rest.replyTo && hidden.has(Number(replyUserId))
+        ? { ...rest.replyTo, nick: 'Скрыто', text: 'Сообщение скрыто' }
+        : rest.replyTo;
+      return {
+        ...rest,
+        userId,
+        ...(replyTo ? { replyTo } : {}),
+        avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined
+          ? avByNick[String(rest.nick || '').toLowerCase()].avatar
+          : (rest.avatar || 0),
+        avatarRev: avByNick[String(rest.nick || '').toLowerCase()]?.avatarRev || 0,
+      };
+    });
     return jsonRes(res, 200, out);
   }
   if (req.method === 'POST') {
@@ -997,7 +1419,10 @@ async function handleChat(req, res) {
     const chat = loadJson(CHAT_FILE, { seq: 0, messages: [] });
     const msg = { id: ++chat.seq, userId: user.id, nick: user.nick, avatar: avatarOf(user), text, at: Date.now() };
     const rid = Number(b && b.replyTo) || 0;
-    if (rid) { const orig = chat.messages.find(m => m.id === rid); if (orig) msg.replyTo = { id: orig.id, nick: orig.nick, text: String(orig.text).slice(0, 80) }; }
+    if (rid) {
+      const orig = chat.messages.find(m => m.id === rid);
+      if (orig) msg.replyTo = { id: orig.id, userId: orig.userId, nick: orig.nick, text: String(orig.text).slice(0, 80) };
+    }
     chat.messages.push(msg);
     if (chat.messages.length > 500) chat.messages = chat.messages.slice(-500);
     saveJson(CHAT_FILE, chat);
@@ -1024,12 +1449,18 @@ async function handleComments(req, res) {
     // userId — внутреннее поле (нужно только для admin delete-comment по id, не по userId);
     // публично не отдаём, чтобы не облегчать перечисление аккаунтов по нику↔id.
     const avByNick = {};
-    for (const u of loadUsers().users) if (u.nick) avByNick[u.nick.toLowerCase()] = avatarOf(u);
+    for (const u of loadUsers().users) {
+      if (u.nick) avByNick[u.nick.toLowerCase()] = { avatar: avatarOf(u), avatarRev: u.avatarRev || 0, userId: u.id };
+    }
     const viewer = authUser(req);
-    const hidden = viewer ? blockedIds(blocksDb(), viewer.id) : [];
-    const out = (all[animeId] || []).filter(c => !hidden.includes(Number(c.userId))).slice(-100).map(({ userId, ...rest }) => ({
+    const hidden = viewer ? bilateralHiddenIds(blocksDb(), viewer.id) : new Set();
+    const out = (all[animeId] || []).filter(c => !hidden.has(Number(c.userId))).slice(-100).map(({ userId, ...rest }) => ({
       ...rest,
-      avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined ? avByNick[String(rest.nick || '').toLowerCase()] : (rest.avatar || 0),
+      userId,
+      avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined
+        ? avByNick[String(rest.nick || '').toLowerCase()].avatar
+        : (rest.avatar || 0),
+      avatarRev: avByNick[String(rest.nick || '').toLowerCase()]?.avatarRev || 0,
     }));
     return jsonRes(res, 200, out);
   }
@@ -1099,6 +1530,7 @@ async function handleRating(req, res) {
     const user = authUser(req);
     if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы оценивать' });
     if (user.emailVerified === false) return jsonRes(res, 403, { error: 'Подтвердите почту' });
+    if (isBanned(user)) return jsonRes(res, 403, { error: banMessage(user) });
     if (tooMany(userHits, 'rating:' + user.id, 30, 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
     const b = await readBody(req);
     const id = String((b && b.animeId) || '');
@@ -1130,6 +1562,7 @@ async function handleRating(req, res) {
 async function handleAvatar(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
+  if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
   const b = await readBody(req);
   const avatar = Number(b && b.avatar);
   if (!(avatar >= 0 && avatar <= 11)) return jsonRes(res, 400, { error: 'avatar 0-11' });
@@ -1191,7 +1624,18 @@ function reportSnapshot(type, targetId, animeId, reporterId) {
     }
     return null;
   }
-  return type === 'profile' ? { nick: sanitizeText(targetId, 24) } : null;
+  if (type === 'profile') {
+    const nick = sanitizeText(targetId, 24);
+    const target = loadUsers().users.find(u => u.nick && u.nick.toLowerCase() === nick.toLowerCase());
+    if (!target) return null;
+    return {
+      userId: target.id,
+      nick: target.nick,
+      text: [target.bio, target.favoriteGenre].filter(Boolean).join(' · '),
+      avatar: avatarOf(target),
+    };
+  }
+  return null;
 }
 
 async function handleModeration(req, res) {
@@ -1214,7 +1658,10 @@ async function handleModeration(req, res) {
     const block = b.action !== 'unblock';
     all[String(user.id)] = block ? [...new Set([...mine, targetId])] : mine.filter(id => id !== targetId);
     saveJson(BLOCKS_FILE, all);
-    if (block) removeRelationship(user.id, targetId);
+    if (block) {
+      removeRelationship(user.id, targetId);
+      removeInteractionNotifications(user.id, targetId);
+    }
     return jsonRes(res, 200, { blocked: block });
   }
   if (req.url.startsWith('/alapi/reports')) {
@@ -1228,12 +1675,17 @@ async function handleModeration(req, res) {
     if (!snapshot) return jsonRes(res, 404, { error: 'Объект жалобы не найден' });
     const reason = sanitizeText(b && b.reason, 80);
     if (!reason) return jsonRes(res, 400, { error: 'Укажите причину' });
-    const all = loadJson(REPORTS_FILE, { seq: 0, items: [] });
+    const all = loadReports();
+    const snapshotNick = type === 'profile'
+      ? snapshot.nick
+      : (snapshot.nick || snapshot.from);
+    const targetUserId = Number(snapshot.userId) || userIdByNick(snapshotNick) || 0;
+    const evidence = { ...snapshot, ...(targetUserId ? { userId: targetUserId } : {}) };
     const report = {
       id: ++all.seq, reporterId: user.id, reporterNick: user.nick, type,
-      targetId, targetNick: sanitizeText((b && b.targetNick) || snapshot.nick || snapshot.from, 24),
+      targetId, targetNick: sanitizeText(snapshotNick, 24), targetUserId,
       animeId: sanitizeText(b && b.animeId, 40), reason,
-      details: sanitizeText(b && b.details, 500), snapshot, status: 'open', createdAt: Date.now(),
+      details: sanitizeText(b && b.details, 500), snapshot: evidence, status: 'open', createdAt: Date.now(),
     };
     all.items.push(report); all.items = all.items.slice(-2000); saveJson(REPORTS_FILE, all);
     return jsonRes(res, 200, { ok: true, reportId: report.id });
@@ -1242,12 +1694,13 @@ async function handleModeration(req, res) {
 }
 
 /** Аватар пользователя для публичных ответов: -1 = кастомный (клиент грузит /alapi/avatar-img). */
-function avatarOf(u) { return u.customAvatar ? -1 : (u.avatar || 0); }
+function avatarOf(u) { return isBanned(u) ? 0 : (u.customAvatar ? -1 : (u.avatar || 0)); }
 
 async function handleAvatarUpload(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'Не авторизован' });
   if (user.emailVerified === false) return jsonRes(res, 403, { error: 'Подтвердите почту: Профиль → код из письма' });
+  if (isBanned(user)) return jsonRes(res, 403, { error: banMessage(user) });
   if (tooMany(userHits, 'av:' + user.id, 5, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро' });
   const b = await readBody(req, AVATAR_MAX_B64 + 4096);
   const b64 = b && typeof b.image === 'string' ? b.image : null;
@@ -1276,10 +1729,10 @@ async function handleAvatarUpload(req, res) {
 function handleAvatarImg(req, res) {
   const nick = decodeURIComponent(String((req.url.match(/[?&]nick=([^&]+)/) || [])[1] || ''));
   const u = loadUsers().users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
-  if (!u || !u.customAvatar) { res.writeHead(404); return res.end('no avatar'); }
+  if (!u || !u.customAvatar || isBanned(u)) { res.writeHead(404); return res.end('no avatar'); }
   let buf;
   try { buf = fs.readFileSync(`${AVATARS_DIR}/${Number(u.id)}.img`); } catch (e) { res.writeHead(404); return res.end('no avatar'); }
-  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(buf);
 }
 
@@ -1664,10 +2117,20 @@ async function route(req, res) {
 
   const m = req.url.match(/^\/alapi\/([a-z0-9]+)\/(.*)$/);
   if (!m) { res.writeHead(404); return res.end('not found'); }
-  const base = UPSTREAMS[m[1]];
+  const alias = m[1];
+  const base = UPSTREAMS[alias];
   if (!base) { res.writeHead(404); return res.end('unknown source'); }
   const target = base + '/' + m[2];
-  if (m[1] === 'shikimori') {
+  const policy = publicProxyPolicy(alias, target);
+  if (!policy) {
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ error: 'proxy route is not allowed' }));
+  }
+  if (tooMany(ipHits, `proxy:${clientIp(req)}`, 300, 60_000)) {
+    res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': '60' });
+    return res.end(JSON.stringify({ error: 'too many proxy requests' }));
+  }
+  if (alias === 'shikimori') {
     const detail = String(m[2]).match(/^api\/animes\/(\d+)(?:\/.*)?$/);
     if (detail && BLOCKED_ANIME_IDS.has(Number(detail[1]))) {
       res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -1676,28 +2139,61 @@ async function route(req, res) {
   }
   // Постеры не меняются по URL — неделя клиентского кэша (дисковый кэш Coil),
   // повторные заходы в каталог больше не тянут картинки по сети вообще.
-  const imgHeaders = (ct) => String(ct || '').startsWith('image/')
-    ? { 'Cache-Control': 'public, max-age=604800, immutable' } : {};
   const hit = cache.get(target);
-  if (hit && hit.exp > Date.now()) {
-    res.writeHead(hit.status, { 'Content-Type': hit.ctype, 'X-Cache': 'HIT', ...imgHeaders(hit.ctype) });
+  if (hit) {
+    res.writeHead(hit.status, safeProxyHeaders(hit.ctype, { cacheHit: true }));
     return res.end(hit.body);
   }
   try {
-    const r = await fetchFollow(target);
-    if (m[1] === 'shikimori' && r.status === 200) {
-      const filtered = filterBlockedAnimePayload('/' + m[2], r.body);
+    let pending = proxyInflight.get(target);
+    if (!pending) {
+      if (proxyInflight.size >= MAX_PROXY_INFLIGHT) {
+        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': '2' });
+        return res.end(JSON.stringify({ error: 'proxy is busy' }));
+      }
+      pending = fetchFollow(target, { maxBytes: policy.maxBytes });
+      proxyInflight.set(target, pending);
+      pending.then(() => proxyInflight.delete(target), () => proxyInflight.delete(target));
+    }
+    const r = await pending;
+    if (r.status < 200 || r.status >= 300) {
+      const status = r.status >= 400 && r.status <= 599 ? r.status : 502;
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ error: 'upstream request failed' }));
+    }
+    let responseBody;
+    let responseType;
+    if (policy.kind === 'json') {
+      let parsed;
+      try { parsed = JSON.parse(r.body.toString('utf8')); } catch (_) {
+        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify({ error: 'invalid upstream JSON' }));
+      }
+      responseBody = Buffer.from(JSON.stringify(parsed));
+      responseType = 'application/json; charset=utf-8';
+    } else {
+      responseType = detectRasterContentType(r.body);
+      if (!responseType || !isSafeProxyContentType(responseType)) {
+        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify({ error: 'invalid upstream image' }));
+      }
+      responseBody = r.body;
+    }
+    if (alias === 'shikimori' && policy.kind === 'json') {
+      const filtered = filterBlockedAnimePayload('/' + m[2], responseBody);
       if (filtered) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         return res.end(filtered);
       }
     }
-    const isImg = String(r.ctype || '').startsWith('image/');
-    if (r.status === 200 && r.body.length <= 5 * 1024 * 1024) {
-      if (cache.size >= 300) cache.delete(cache.keys().next().value);
-      cache.set(target, { ...r, exp: Date.now() + (isImg ? IMG_TTL_MS : TTL_MS) });
-    }
-    res.writeHead(r.status, { 'Content-Type': r.ctype, ...imgHeaders(r.ctype) }); res.end(r.body);
+    cache.set(target, {
+      status: 200,
+      body: responseBody,
+      ctype: responseType,
+      exp: Date.now() + (policy.kind === 'image' ? IMG_TTL_MS : TTL_MS),
+    });
+    res.writeHead(200, safeProxyHeaders(responseType));
+    return res.end(responseBody);
   } catch (e) { res.writeHead(502); res.end('gateway error: ' + e.message); }
 }
 // Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.

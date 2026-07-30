@@ -87,6 +87,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.anipulse.app.data.video.Dub
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 
 @Composable
@@ -162,6 +163,7 @@ private fun NativePlayer(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val config = androidx.compose.ui.platform.LocalConfiguration.current
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -182,9 +184,19 @@ private fun NativePlayer(
             .setLoadControl(loadControl)
             .build()
             .apply {
-                playWhenReady = true
+                playWhenReady = false
                 setHandleAudioBecomingNoisy(true)
             }
+    }
+    DisposableEffect(exo, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                exo.pause()
+                viewModel.saveProgress(exo.currentPosition, exo.duration.coerceAtLeast(0))
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -212,7 +224,12 @@ private fun NativePlayer(
         exo.setMediaItem(MediaItem.fromUri(url))
         exo.prepare()
         if (resumeAt > 1000) exo.seekTo(resumeAt)
-        exo.play()
+        if (
+            com.anipulse.app.ui.common.AppVisibility.foreground.value &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        ) {
+            exo.play()
+        }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -241,23 +258,26 @@ private fun NativePlayer(
     // Тик позиции + периодическое сохранение прогресса + авто-пропуск
     LaunchedEffect(Unit) {
         var ticks = 0
-        while (true) {
-            positionMs = exo.currentPosition
-            durationMs = exo.duration.coerceAtLeast(0)
-            isPlaying = exo.isPlaying
-            if (++ticks % 10 == 0 && exo.isPlaying) viewModel.saveProgress(positionMs, durationMs)
-            val sec = positionMs / 1000
-            // Авто-пропуск повтора (в самом начале серии)
-            if (state.autoSkipRecap && !recapSkipped && sec in 3..8 && durationMs > 200_000) {
-                exo.seekTo(exo.currentPosition + 80_000); recapSkipped = true
+        com.anipulse.app.ui.common.AppVisibility.foreground.collectLatest { active ->
+            if (!active) return@collectLatest
+            while (true) {
+                positionMs = exo.currentPosition
+                durationMs = exo.duration.coerceAtLeast(0)
+                isPlaying = exo.isPlaying
+                if (++ticks % 10 == 0 && exo.isPlaying) viewModel.saveProgress(positionMs, durationMs)
+                val sec = positionMs / 1000
+                // Авто-пропуск повтора (в самом начале серии)
+                if (state.autoSkipRecap && !recapSkipped && sec in 3..8 && durationMs > 200_000) {
+                    exo.seekTo(exo.currentPosition + 80_000); recapSkipped = true
+                }
+                // Авто-пропуск опенинга (по таймкодам или на первых 2 мин)
+                if (state.autoSkipOpening && !openingSkipped && durationMs > 200_000) {
+                    val op = state.stream?.opening
+                    if (op != null && sec in op.start.toLong()..op.stop.toLong()) { exo.seekTo(op.stop * 1000L); openingSkipped = true }
+                    else if (op == null && sec in 5..90) { exo.seekTo(exo.currentPosition + 85_000); openingSkipped = true }
+                }
+                delay(500)
             }
-            // Авто-пропуск опенинга (по таймкодам или на первых 2 мин)
-            if (state.autoSkipOpening && !openingSkipped && durationMs > 200_000) {
-                val op = state.stream?.opening
-                if (op != null && sec in op.start.toLong()..op.stop.toLong()) { exo.seekTo(op.stop * 1000L); openingSkipped = true }
-                else if (op == null && sec in 5..90) { exo.seekTo(exo.currentPosition + 85_000); openingSkipped = true }
-            }
-            delay(500)
         }
     }
     // Автоскрытие панелей
@@ -567,7 +587,13 @@ private fun NativePlayer(
                     items(state.comments.size) { i ->
                         val cm = state.comments[i]
                         Row {
-                            com.anipulse.app.ui.common.Avatar(cm.avatar, 26.dp, nick = cm.nick)
+                            com.anipulse.app.ui.common.Avatar(
+                                cm.avatar,
+                                26.dp,
+                                nick = cm.nick,
+                                rev = cm.avatarRev,
+                                accountId = cm.userId,
+                            )
                             Column(Modifier.padding(start = 8.dp)) {
                                 Text(
                                     cm.nick,

@@ -37,6 +37,16 @@ class MainActivity : ComponentActivity() {
      * и сохраняется только после явного подтверждения пользователя. */
     private var pendingLogin by mutableStateOf<Pair<String, String>?>(null) // token to nick
 
+    override fun onStart() {
+        super.onStart()
+        com.anipulse.app.ui.common.AppVisibility.foreground.value = true
+    }
+
+    override fun onStop() {
+        com.anipulse.app.ui.common.AppVisibility.foreground.value = false
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)

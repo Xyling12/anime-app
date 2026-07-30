@@ -55,6 +55,8 @@ import com.anipulse.app.data.DmThread
 import com.anipulse.app.data.GatewayApi
 import com.anipulse.app.data.SettingsStore
 import com.anipulse.app.ui.common.Avatar
+import com.anipulse.app.ui.common.ScreenPollingEffect
+import com.anipulse.app.ui.common.launchForegroundPolling
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -83,16 +85,15 @@ class DmListViewModel @Inject constructor(
     private val token = settings.authToken
     private val _state = MutableStateFlow(DmListState(isLoggedIn = token != null))
     val state: StateFlow<DmListState> = _state.asStateFlow()
+    private val pollingActive = MutableStateFlow(false)
+    fun setPollingActive(active: Boolean) { pollingActive.value = active }
 
     init {
-        viewModelScope.launch {
-            while (true) {
-                token?.let { t ->
-                    runCatching { gateway.dmList("Bearer $t") }.onSuccess { list ->
-                        _state.update { it.copy(threads = list, loading = false) }
-                    }.onFailure { _state.update { it.copy(loading = false) } }
-                }
-                delay(6000)
+        viewModelScope.launchForegroundPolling(6_000, pollingActive) {
+            token?.let { t ->
+                runCatching { gateway.dmList("Bearer $t") }.onSuccess { list ->
+                    _state.update { it.copy(threads = list, loading = false) }
+                }.onFailure { _state.update { it.copy(loading = false) } }
             }
         }
     }
@@ -104,6 +105,7 @@ fun DmListScreen(
     onOpenThread: (String) -> Unit,
     viewModel: DmListViewModel = hiltViewModel(),
 ) {
+    ScreenPollingEffect(viewModel::setPollingActive)
     val state by viewModel.state.collectAsState()
     Column(Modifier.fillMaxSize().topSafePadding()) {
         Row(
@@ -136,7 +138,13 @@ fun DmListScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box {
-                            Avatar(t.withAvatar, 42.dp, nick = t.withNick)
+                            Avatar(
+                                t.withAvatar,
+                                42.dp,
+                                nick = t.withNick,
+                                rev = t.withAvatarRev,
+                                accountId = t.withUserId,
+                            )
                             if (t.withOnline) {
                                 Box(
                                     Modifier
@@ -210,23 +218,22 @@ class DmChatViewModel @Inject constructor(
     private val _state = MutableStateFlow(DmChatState(withNick = withNick, myNick = settings.authNick))
     val state: StateFlow<DmChatState> = _state.asStateFlow()
     private var firstLoadDone = false
+    private val pollingActive = MutableStateFlow(false)
+    fun setPollingActive(active: Boolean) { pollingActive.value = active }
 
     init {
-        viewModelScope.launch {
-            while (true) {
-                token?.let { t ->
-                    val after = _state.value.messages.lastOrNull()?.id ?: 0
-                    runCatching { gateway.dmThread("Bearer $t", withNick, after) }.onSuccess { fresh ->
-                        if (fresh.isNotEmpty()) {
-                            _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
-                            // Собственные отправленные сообщения добавляются локально в send(), сюда не попадают —
-                            // всё, что пришло пулингом, от собеседника.
-                            if (firstLoadDone) SoundPlayer.playMessageSound(context)
-                        }
-                        firstLoadDone = true
+        viewModelScope.launchForegroundPolling(4_000, pollingActive) {
+            token?.let { t ->
+                val after = _state.value.messages.lastOrNull()?.id ?: 0
+                runCatching { gateway.dmThread("Bearer $t", withNick, after) }.onSuccess { fresh ->
+                    if (fresh.isNotEmpty()) {
+                        _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
+                        // Собственные отправленные сообщения добавляются локально в send(), сюда не попадают —
+                        // всё, что пришло пулингом, от собеседника.
+                        if (firstLoadDone) SoundPlayer.playMessageSound(context)
                     }
+                    firstLoadDone = true
                 }
-                delay(4000)
             }
         }
     }
@@ -282,6 +289,7 @@ fun DmChatScreen(
     onBack: () -> Unit,
     viewModel: DmChatViewModel = hiltViewModel(),
 ) {
+    ScreenPollingEffect(viewModel::setPollingActive)
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }

@@ -211,7 +211,7 @@ fun ProfileScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.clickable { avatarDialog = true }) {
-                Avatar(state.avatarId, 76.dp, nick = state.nick, rev = state.avatarRev)
+                Avatar(state.avatarId, 76.dp, nick = state.nick, rev = state.avatarRev, accountId = state.userId)
             }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -507,7 +507,7 @@ private fun ProfileRedesign(
         Dialog(onDismissRequest = { profileDialog = null }) {
             Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(22.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Avatar(state.avatarId, 72.dp, nick = state.nick, rev = state.avatarRev)
+                    Avatar(state.avatarId, 72.dp, nick = state.nick, rev = state.avatarRev, accountId = state.userId)
                     Spacer(Modifier.height(12.dp))
                     Text(state.nick.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(state.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -565,7 +565,7 @@ private fun ProfileRedesign(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.clickable { avatarDialog = true }) {
-                Avatar(state.avatarId, 78.dp, nick = state.nick, rev = state.avatarRev)
+                Avatar(state.avatarId, 78.dp, nick = state.nick, rev = state.avatarRev, accountId = state.userId)
             }
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

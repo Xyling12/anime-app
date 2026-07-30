@@ -37,12 +37,22 @@ val AVATAR_PRESETS: List<Pair<List<Color>, String>> = listOf(
  * с шлюза /alapi/avatar-img). При -1 без ника или пока грузится — первый пресет фоном.
  */
 @Composable
-fun Avatar(id: Int, size: Dp, modifier: Modifier = Modifier, nick: String? = null, rev: Int = 0) {
+fun Avatar(
+    id: Int,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    nick: String? = null,
+    rev: Int = 0,
+    accountId: Long? = null,
+) {
     if (id == -1 && !nick.isNullOrBlank()) {
         coil.compose.AsyncImage(
             model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                 .data(com.anipulse.app.data.Api.GATEWAY + "avatar-img?nick=" + java.net.URLEncoder.encode(nick, "UTF-8") + "&v=" + rev)
-                .memoryCacheKey("avatar_${nick.lowercase()}_$rev")
+                // Immutable account id prevents a reused nickname from inheriting
+                // the previous owner's in-memory image. Revision invalidates updates.
+                .memoryCacheKey("avatar_${accountId ?: nick.lowercase()}_$rev")
+                .diskCachePolicy(coil.request.CachePolicy.DISABLED)
                 .crossfade(false)
                 .build(),
             contentDescription = null,

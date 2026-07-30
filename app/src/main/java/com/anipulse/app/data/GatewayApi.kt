@@ -48,9 +48,11 @@ data class AuthResponse(
 
 @Serializable
 data class MeResponse(
+    val userId: Long = 0,
     val nick: String? = null,
     val email: String? = null,
     val avatar: Int = 0,
+    val avatarRev: Int = 0,
     val linked: List<String> = emptyList(),
     val admin: Boolean = false,
     val emailVerified: Boolean = true,
@@ -72,6 +74,7 @@ data class ChatMessage(
     val userId: Long = 0,
     val nick: String = "",
     val avatar: Int = 0,
+    val avatarRev: Int = 0,
     val text: String = "",
     val at: Long = 0,
     val replyTo: ChatReply? = null,
@@ -83,6 +86,7 @@ data class ChatMessage(
 @Serializable
 data class ChatReply(
     val id: Long = 0,
+    val userId: Long? = null,
     val nick: String = "",
     val text: String = "",
 )
@@ -129,8 +133,10 @@ data class AppVersion(val versionCode: Int = 0, val versionName: String = "", va
 /** Диалог ЛС в списке чатов. */
 @Serializable
 data class DmThread(
+    val withUserId: Long = 0,
     val withNick: String = "",
     val withAvatar: Int = 0,
+    val withAvatarRev: Int = 0,
     val withOnline: Boolean = false,
     val lastText: String = "",
     val lastAt: Long = 0,
@@ -166,8 +172,10 @@ data class Notification(
 /** Публичная карточка пользователя. */
 @Serializable
 data class UserCard(
+    val userId: Long = 0,
     val nick: String = "",
     val avatar: Int = 0,
+    val avatarRev: Int = 0,
     val bio: String = "",
     val createdAt: Long? = null,
     val lastSeen: Long? = null,
@@ -178,6 +186,8 @@ data class UserCard(
     val ratingsCount: Int = 0,
     val friendState: String? = null,
     val blocked: Boolean = false,
+    val blockedByTarget: Boolean = false,
+    val restricted: Boolean = false,
 )
 
 @Serializable
@@ -241,6 +251,17 @@ data class ReportRequest(
 data class DeleteAccountRequest(val confirm: String = "DELETE")
 
 @Serializable
+data class ModerationSnapshot(
+    val id: Long = 0,
+    val userId: Long = 0,
+    val nick: String = "",
+    val from: String = "",
+    val to: String = "",
+    val text: String = "",
+    val at: Long = 0,
+)
+
+@Serializable
 data class ModerationReport(
     val id: Long = 0,
     val reporterNick: String = "",
@@ -252,6 +273,7 @@ data class ModerationReport(
     val details: String = "",
     val status: String = "open",
     val createdAt: Long = 0,
+    val snapshot: ModerationSnapshot? = null,
 )
 
 @Serializable
@@ -259,6 +281,21 @@ data class ResolveReportRequest(
     val id: Long,
     val status: String = "resolved",
     val resolution: String = "Проверено модератором",
+)
+
+@Serializable
+data class ModerationActionRequest(
+    val id: Long,
+    val action: String,
+    val resolution: String,
+)
+
+@Serializable
+data class ModerationActionResponse(
+    val ok: Boolean = false,
+    val removed: Int = 0,
+    val bannedUntil: Long = 0,
+    val error: String? = null,
 )
 
 /** Собственные эндпоинты шлюза (не прокси). */
@@ -462,6 +499,12 @@ interface GatewayApi {
         @retrofit2.http.Header("Authorization") bearer: String,
         @retrofit2.http.Body body: ResolveReportRequest,
     ): kotlinx.serialization.json.JsonObject
+
+    @retrofit2.http.POST("admin/reports/action")
+    suspend fun actOnAdminReport(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: ModerationActionRequest,
+    ): ModerationActionResponse
 
     @retrofit2.http.POST("avatar")
     suspend fun setAvatar(

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.anipulse.app.data.GatewayApi
 import com.anipulse.app.data.SettingsStore
+import com.anipulse.app.ui.common.launchForegroundPolling
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -45,16 +46,13 @@ class RootMenuViewModel @Inject constructor(
     val update = kotlinx.coroutines.flow.MutableStateFlow<com.anipulse.app.data.AppVersion?>(null)
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launchForegroundPolling(60_000) {
             // Проверяем OTA не только при холодном запуске: серверный манифест
             // мог обновиться, пока приложение было открыто.
-            while (true) {
-                runCatching { gateway.appVersion() }.onSuccess { v ->
-                    if (v.versionCode > com.anipulse.app.BuildConfig.VERSION_CODE && v.url.isNotBlank()) {
-                        update.value = v
-                    }
+            runCatching { gateway.appVersion() }.onSuccess { v ->
+                if (v.versionCode > com.anipulse.app.BuildConfig.VERSION_CODE && v.url.isNotBlank()) {
+                    update.value = v
                 }
-                delay(60_000)
             }
         }
 
@@ -72,20 +70,17 @@ class RootMenuViewModel @Inject constructor(
                 }
             }
         }
-        viewModelScope.launch {
-            while (true) {
-                settings.authToken?.let { t ->
-                    val dm = runCatching {
-                        gateway.dmList("Bearer $t").sumOf { it.unread }
-                    }.getOrDefault(0)
-                    val notif = runCatching {
-                        gateway.notifications("Bearer $t").count { !it.read }
-                    }.getOrDefault(0)
-                    _dmUnread.value = dm > 0
-                    _notifUnread.value = notif > 0
-                } ?: run { _dmUnread.value = false; _notifUnread.value = false }
-                delay(10_000) // точка у колокольчика/чата не позже 10с (фидбек: 30с — долго)
-            }
+        viewModelScope.launchForegroundPolling(10_000) {
+            settings.authToken?.let { t ->
+                val dm = runCatching {
+                    gateway.dmList("Bearer $t").sumOf { it.unread }
+                }.getOrDefault(0)
+                val notif = runCatching {
+                    gateway.notifications("Bearer $t").count { !it.read }
+                }.getOrDefault(0)
+                _dmUnread.value = dm > 0
+                _notifUnread.value = notif > 0
+            } ?: run { _dmUnread.value = false; _notifUnread.value = false }
         }
     }
 }

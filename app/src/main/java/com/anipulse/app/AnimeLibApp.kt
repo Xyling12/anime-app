@@ -1,7 +1,9 @@
 package com.anipulse.app
 
 import android.app.Application
+import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.anipulse.app.notify.NotifyWorker
@@ -37,15 +39,17 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         NotifyWorker.ensureChannels(this)
-        // Пуши без Google-сервисов: периодический опрос шлюза (15 мин — минимум WorkManager).
+        val notifyConstraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        // Фоновая проверка откладывается без сети и при низком заряде.
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "anipulse-notify",
             ExistingPeriodicWorkPolicy.UPDATE,
-            PeriodicWorkRequestBuilder<NotifyWorker>(15, TimeUnit.MINUTES).build(),
-        )
-        // Разовая проверка сразу при запуске приложения (пуши догоняют мгновенно).
-        WorkManager.getInstance(this).enqueue(
-            androidx.work.OneTimeWorkRequestBuilder<NotifyWorker>().build(),
+            PeriodicWorkRequestBuilder<NotifyWorker>(30, TimeUnit.MINUTES)
+                .setConstraints(notifyConstraints)
+                .build(),
         )
     }
 

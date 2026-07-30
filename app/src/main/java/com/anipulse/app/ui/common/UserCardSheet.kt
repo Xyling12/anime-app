@@ -85,7 +85,7 @@ fun UserCardSheet(
                 c == null -> Text("Загрузка…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> {
                     Box {
-                        Avatar(c.avatar, 84.dp, nick = c.nick)
+                        Avatar(c.avatar, 84.dp, nick = c.nick, rev = c.avatarRev, accountId = c.userId)
                         if (c.online) {
                             Box(
                                 Modifier
@@ -140,46 +140,54 @@ fun UserCardSheet(
                     }
                     if (token != null && friendState != "self") {
                         Spacer(Modifier.height(16.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { onWrite(c.nick) },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Icon(Icons.Filled.Mail, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Написать")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    val action = when (friendState) {
-                                        "incoming" -> "accept"
-                                        "friends" -> "remove"
-                                        "none", null -> "add"
-                                        else -> null
-                                    }
-                                    action?.let { a ->
-                                        scope.launch {
-                                            runCatching {
-                                                gateway.friendAction("Bearer $token", a, FriendActionRequest(c.nick))
-                                            }.onSuccess { friendState = it.state }
+                        if (!blocked && !c.blockedByTarget && !c.restricted) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = { onWrite(c.nick) },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Filled.Mail, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Написать")
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        val action = when (friendState) {
+                                            "incoming" -> "accept"
+                                            "friends" -> "remove"
+                                            "none", null -> "add"
+                                            else -> null
                                         }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                enabled = friendState != "outgoing",
-                            ) {
-                                Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    when (friendState) {
-                                        "friends" -> "В друзьях ✓"
-                                        "outgoing" -> "Заявка ушла"
-                                        "incoming" -> "Принять"
-                                        else -> "В друзья"
+                                        action?.let { a ->
+                                            scope.launch {
+                                                runCatching {
+                                                    gateway.friendAction("Bearer $token", a, FriendActionRequest(c.nick))
+                                                }.onSuccess { friendState = it.state }
+                                            }
+                                        }
                                     },
-                                    maxLines = 1,
-                                )
+                                    modifier = Modifier.weight(1f),
+                                    enabled = friendState != "outgoing",
+                                ) {
+                                    Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        when (friendState) {
+                                            "friends" -> "В друзьях ✓"
+                                            "outgoing" -> "Заявка ушла"
+                                            "incoming" -> "Принять"
+                                            else -> "В друзья"
+                                        },
+                                        maxLines = 1,
+                                    )
+                                }
                             }
+                        } else {
+                            Text(
+                                "Взаимодействие с пользователем ограничено",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Spacer(Modifier.height(10.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -188,7 +196,15 @@ fun UserCardSheet(
                                     scope.launch {
                                         runCatching {
                                             gateway.blockUser("Bearer $token", BlockRequest(c.nick, if (blocked) "unblock" else "block"))
-                                        }.onSuccess { blocked = it.blocked; actionMessage = if (it.blocked) "Пользователь заблокирован" else "Блокировка снята" }
+                                        }.onSuccess {
+                                            blocked = it.blocked
+                                            friendState = "none"
+                                            actionMessage = if (it.blocked) {
+                                                "Пользователь заблокирован"
+                                            } else {
+                                                "Блокировка снята"
+                                            }
+                                        }
                                     }
                                 },
                                 modifier = Modifier.weight(1f),

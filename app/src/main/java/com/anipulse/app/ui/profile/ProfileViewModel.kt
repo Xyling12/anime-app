@@ -25,6 +25,7 @@ data class ProfileState(
     val autoSkipRecap: Boolean = false,
     val autoNextEpisode: Boolean = true,
     // Аккаунт
+    val userId: Long = 0,
     val nick: String? = null,
     val email: String? = null,
     val linked: List<String> = emptyList(),
@@ -83,7 +84,16 @@ class ProfileViewModel @Inject constructor(
                     settings.avatarId = me.avatar
                     settings.authAdmin = me.admin
                     _state.update { it.copy(emailVerified = me.emailVerified) }
-                    _state.update { it.copy(nick = me.nick, email = me.email, linked = me.linked, avatarId = me.avatar) }
+                    _state.update {
+                        it.copy(
+                            userId = me.userId,
+                            nick = me.nick,
+                            email = me.email,
+                            linked = me.linked,
+                            avatarId = me.avatar,
+                            avatarRev = me.avatarRev,
+                        )
+                    }
                 } else {
                     logout() // токен протух
                 }
@@ -138,10 +148,12 @@ class ProfileViewModel @Inject constructor(
                     settings.authAdmin = me.admin
                     _state.update {
                         it.copy(
+                            userId = me.userId,
                             nick = resolvedNick,
                             email = resolvedEmail,
                             linked = me.linked,
                             avatarId = me.avatar,
+                            avatarRev = me.avatarRev,
                             emailVerified = me.emailVerified,
                             authBusy = false,
                             authError = null,
@@ -156,7 +168,7 @@ class ProfileViewModel @Inject constructor(
 
     fun logout() {
         settings.authToken = null; settings.authNick = null; settings.authEmail = null; settings.authAdmin = false
-        _state.update { it.copy(nick = null, email = null, linked = emptyList()) }
+        _state.update { it.copy(userId = 0, nick = null, email = null, linked = emptyList(), avatarRev = 0) }
     }
 
     fun deleteAccount() {
@@ -253,7 +265,16 @@ class ProfileViewModel @Inject constructor(
                     runCatching { gateway.me("Bearer $token") }.onSuccess { me ->
                         if (me.nick != null) {
                             settings.avatarId = me.avatar
-                            _state.update { it.copy(nick = me.nick, email = me.email, linked = me.linked, avatarId = me.avatar) }
+                            _state.update {
+                                it.copy(
+                                    userId = me.userId,
+                                    nick = me.nick,
+                                    email = me.email,
+                                    linked = me.linked,
+                                    avatarId = me.avatar,
+                                    avatarRev = me.avatarRev,
+                                )
+                            }
                         }
                     }
                 }

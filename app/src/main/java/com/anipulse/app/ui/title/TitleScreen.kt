@@ -455,7 +455,13 @@ fun TitleScreen(
                     var revealed by remember(cm.id) { mutableStateOf(false) }
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         Box(Modifier.clickable { commentProfileNick = cm.nick }) {
-                            com.anipulse.app.ui.common.Avatar(cm.avatar, 30.dp, nick = cm.nick)
+                            com.anipulse.app.ui.common.Avatar(
+                                cm.avatar,
+                                30.dp,
+                                nick = cm.nick,
+                                rev = cm.avatarRev,
+                                accountId = cm.userId,
+                            )
                         }
                         Column(
                             Modifier

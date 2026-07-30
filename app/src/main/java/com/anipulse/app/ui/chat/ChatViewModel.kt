@@ -8,6 +8,7 @@ import com.anipulse.app.data.GatewayApi
 import com.anipulse.app.data.SettingsStore
 import com.anipulse.app.data.TextRequest
 import com.anipulse.app.notify.SoundPlayer
+import com.anipulse.app.ui.common.launchForegroundPolling
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
@@ -89,25 +90,24 @@ class ChatViewModel @Inject constructor(
         ChatState(isLoggedIn = settings.authToken != null, myNick = settings.authNick)
     )
     val state: StateFlow<ChatState> = _state.asStateFlow()
+    private val pollingActive = MutableStateFlow(false)
+    fun setPollingActive(active: Boolean) { pollingActive.value = active }
 
     private var firstLoadDone = false
 
     init {
         // Пулинг новых сообщений каждые 4 секунды
-        viewModelScope.launch {
-            while (true) {
-                val after = _state.value.messages.lastOrNull()?.id ?: 0
-                runCatching { gateway.chat(after, settings.authToken?.let { "Bearer $it" }) }.onSuccess { fresh ->
-                    if (fresh.isNotEmpty()) {
-                        _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
-                        // Звук — только на реально новые сообщения (не на подгрузку истории при входе) и не на свои.
-                        if (firstLoadDone && fresh.any { it.nick != _state.value.myNick }) {
-                            SoundPlayer.playMessageSound(context)
-                        }
+        viewModelScope.launchForegroundPolling(4_000, pollingActive) {
+            val after = _state.value.messages.lastOrNull()?.id ?: 0
+            runCatching { gateway.chat(after, settings.authToken?.let { "Bearer $it" }) }.onSuccess { fresh ->
+                if (fresh.isNotEmpty()) {
+                    _state.update { it.copy(messages = (it.messages + fresh).takeLast(200)) }
+                    // Звук — только на реально новые сообщения (не на подгрузку истории при входе) и не на свои.
+                    if (firstLoadDone && fresh.any { it.nick != _state.value.myNick }) {
+                        SoundPlayer.playMessageSound(context)
                     }
-                    firstLoadDone = true
                 }
-                delay(4000)
+                firstLoadDone = true
             }
         }
     }

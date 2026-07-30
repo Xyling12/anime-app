@@ -86,6 +86,7 @@ fun ChatScreen(
     onOpenDm: (String) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
+    com.anipulse.app.ui.common.ScreenPollingEffect(viewModel::setPollingActive)
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
@@ -138,7 +139,9 @@ fun ChatScreen(
                 ) {
                     if (!mine) {
                         // Тап по аватару — карточка пользователя
-                        Box(Modifier.clickable { cardNick = m.nick }) { Avatar(m.avatar, 30.dp, nick = m.nick) }
+                        Box(Modifier.clickable { cardNick = m.nick }) {
+                            Avatar(m.avatar, 30.dp, nick = m.nick, rev = m.avatarRev, accountId = m.userId)
+                        }
                         Spacer(Modifier.width(8.dp))
                     }
                     Box {

@@ -49,6 +49,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import com.anipulse.app.data.SettingsStore
+import com.anipulse.app.ui.common.launchForegroundPolling
+import com.anipulse.app.ui.common.ScreenPollingEffect
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
@@ -62,44 +64,62 @@ class ChatsViewModel @Inject constructor(
     val notifUnread = kotlinx.coroutines.flow.MutableStateFlow(0)
     val moderationReports = kotlinx.coroutines.flow.MutableStateFlow<List<com.anipulse.app.data.ModerationReport>>(emptyList())
     val moderationError = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val moderationBusyIds = kotlinx.coroutines.flow.MutableStateFlow<Set<Long>>(emptySet())
+    private val pollingActive = kotlinx.coroutines.flow.MutableStateFlow(false)
+    fun setPollingActive(active: Boolean) { pollingActive.value = active }
 
     init {
-        viewModelScope.launch {
-            while (true) {
-                settings.authToken?.let { t ->
-                    dmUnread.value = runCatching {
-                        gateway.dmList("Bearer $t").sumOf { it.unread }
-                    }.getOrDefault(dmUnread.value)
-                    notifUnread.value = runCatching {
-                        gateway.notifications("Bearer $t").count { !it.read }
-                    }.getOrDefault(notifUnread.value)
-                    if (settings.authAdmin) {
-                        moderationReports.value = runCatching {
-                            gateway.adminReports("Bearer $t")
-                        }.getOrDefault(moderationReports.value)
-                    }
+        viewModelScope.launchForegroundPolling(8_000, pollingActive) {
+            settings.authToken?.let { t ->
+                dmUnread.value = runCatching {
+                    gateway.dmList("Bearer $t").sumOf { it.unread }
+                }.getOrDefault(dmUnread.value)
+                notifUnread.value = runCatching {
+                    gateway.notifications("Bearer $t").count { !it.read }
+                }.getOrDefault(notifUnread.value)
+                if (settings.authAdmin) {
+                    moderationReports.value = runCatching {
+                        gateway.adminReports("Bearer $t")
+                    }.getOrDefault(moderationReports.value)
                 }
-                kotlinx.coroutines.delay(8000)
             }
         }
     }
 
-    fun resolveReport(id: Long, accepted: Boolean) {
+    fun actOnReport(report: com.anipulse.app.data.ModerationReport, action: String) {
         val token = settings.authToken ?: return
+        if (report.id in moderationBusyIds.value) return
+        moderationBusyIds.value = moderationBusyIds.value + report.id
         viewModelScope.launch {
             runCatching {
-                gateway.resolveAdminReport(
+                gateway.actOnAdminReport(
                     "Bearer $token",
-                    com.anipulse.app.data.ResolveReportRequest(
-                        id = id,
-                        status = if (accepted) "resolved" else "rejected",
+                    com.anipulse.app.data.ModerationActionRequest(
+                        id = report.id,
+                        action = action,
+                        resolution = when (action) {
+                            "reject" -> "Нарушение не подтверждено"
+                            "remove" -> "Контент удалён"
+                            "ban_24h" -> "Пользователь заблокирован на 24 часа"
+                            "remove_ban_24h" -> "Контент удалён, пользователь заблокирован на 24 часа"
+                            else -> "Проверено модератором"
+                        },
                     ),
                 )
-            }.onSuccess {
-                moderationReports.value = moderationReports.value.filterNot { it.id == id }
-                moderationError.value = null
+            }.onSuccess { response ->
+                moderationReports.value = moderationReports.value.filterNot { it.id == report.id }
+                moderationError.value = if (action.contains("remove") && response.removed == 0) {
+                    "Жалоба закрыта, но спорный контент уже отсутствовал"
+                } else {
+                    null
+                }
             }.onFailure {
-                moderationError.value = "Не удалось сохранить решение"
+                val serverMessage = (it as? retrofit2.HttpException)
+                    ?.response()?.errorBody()?.string()
+                    ?.let { body -> Regex("\"error\":\"([^\"]+)\"").find(body)?.groupValues?.get(1) }
+                moderationError.value = serverMessage ?: "Не удалось выполнить решение"
+            }.also {
+                moderationBusyIds.value = moderationBusyIds.value - report.id
             }
         }
     }
@@ -119,12 +139,49 @@ fun ChatsScreen(
     onOpenFriends: () -> Unit,
     viewModel: ChatsViewModel = hiltViewModel(),
 ) {
+    ScreenPollingEffect(viewModel::setPollingActive)
     var notifyMode by remember { mutableStateOf(viewModel.settings.chatNotifyMode) }
     val dmUnread by viewModel.dmUnread.collectAsState()
     val notifUnread by viewModel.notifUnread.collectAsState()
     val reports by viewModel.moderationReports.collectAsState()
     val moderationError by viewModel.moderationError.collectAsState()
+    val moderationBusyIds by viewModel.moderationBusyIds.collectAsState()
     var reportQueueOpen by remember { mutableStateOf(false) }
+    var pendingModeration by remember {
+        mutableStateOf<Pair<com.anipulse.app.data.ModerationReport, String>?>(null)
+    }
+
+    pendingModeration?.let { (report, action) ->
+        val actionText = when (action) {
+            "remove" -> "удалить спорный контент"
+            "ban_24h" -> "заблокировать пользователя на 24 часа"
+            "remove_ban_24h" -> "удалить контент и заблокировать пользователя на 24 часа"
+            else -> "выполнить действие"
+        }
+        AlertDialog(
+            onDismissRequest = { pendingModeration = null },
+            title = { Text("Подтвердите решение") },
+            text = {
+                Text(
+                    "Вы действительно хотите $actionText? " +
+                        "Жалоба №${report.id}, пользователь: ${report.targetNick.ifBlank { "не указан" }}.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.actOnReport(report, action)
+                        pendingModeration = null
+                    },
+                ) {
+                    Text("Подтвердить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModeration = null }) { Text("Отмена") }
+            },
+        )
+    }
 
     if (reportQueueOpen) {
         AlertDialog(
@@ -136,6 +193,7 @@ fun ChatsScreen(
                 } else {
                     LazyColumn(Modifier.heightIn(max = 440.dp)) {
                         items(reports, key = { it.id }) { report ->
+                            val moderationBusy = report.id in moderationBusyIds
                             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                                 Text(
                                     "${report.reason} · ${report.type}",
@@ -151,9 +209,67 @@ fun ChatsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 if (report.details.isNotBlank()) Text(report.details, style = MaterialTheme.typography.bodySmall)
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                    TextButton(onClick = { viewModel.resolveReport(report.id, false) }) { Text("Отклонить") }
-                                    TextButton(onClick = { viewModel.resolveReport(report.id, true) }) { Text("Обработано") }
+                                report.snapshot?.let { snapshot ->
+                                    Spacer(Modifier.height(6.dp))
+                                    val author = snapshot.nick.ifBlank { snapshot.from }
+                                    if (author.isNotBlank()) {
+                                        Text(
+                                            listOfNotNull(
+                                                "Автор: $author",
+                                                snapshot.to.takeIf { it.isNotBlank() }?.let { "кому: $it" },
+                                            ).joinToString(" · "),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                    if (snapshot.text.isNotBlank()) {
+                                        Text(
+                                            "«${snapshot.text}»",
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 4.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surfaceVariant,
+                                                    RoundedCornerShape(8.dp),
+                                                )
+                                                .padding(8.dp),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                    }
+                                }
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    TextButton(
+                                        onClick = { viewModel.actOnReport(report, "reject") },
+                                        enabled = !moderationBusy,
+                                    ) {
+                                        Text("Отклонить")
+                                    }
+                                    TextButton(
+                                        onClick = { pendingModeration = report to "remove" },
+                                        enabled = !moderationBusy,
+                                    ) {
+                                        Text("Удалить")
+                                    }
+                                }
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    TextButton(
+                                        onClick = { pendingModeration = report to "ban_24h" },
+                                        enabled = !moderationBusy,
+                                    ) {
+                                        Text("Бан 24ч")
+                                    }
+                                    TextButton(
+                                        onClick = { pendingModeration = report to "remove_ban_24h" },
+                                        enabled = !moderationBusy,
+                                    ) {
+                                        Text("Удалить + бан", color = MaterialTheme.colorScheme.error)
+                                    }
                                 }
                             }
                         }
