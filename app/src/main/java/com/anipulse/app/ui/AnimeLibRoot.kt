@@ -258,8 +258,23 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                                 com.anipulse.app.ui.home.HomeScreen(
                                     onTitleClick = { id -> navController.navigate("title/$id") },
-                                    onContinueAll = { navController.navigate("library") },
-                                    onCatalogAll = { navController.navigate("catalog") },
+                                    onShowAll = { section ->
+                                        if (section == com.anipulse.app.ui.home.HomeSection.CONTINUE) {
+                                            navController.navigate("library") { launchSingleTop = true }
+                                            navController.getBackStackEntry("library").savedStateHandle["initialFilter"] = "watching"
+                                        } else {
+                                            navController.navigate("home_all/${section.route}")
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                        composable("home_all/{section}") { entry ->
+                            CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                                com.anipulse.app.ui.home.HomeAllScreen(
+                                    section = com.anipulse.app.ui.home.HomeSection.fromRoute(entry.arguments?.getString("section")),
+                                    onBack = { navController.popBackStack() },
+                                    onTitleClick = { id -> navController.navigate("title/$id") },
                                 )
                             }
                         }
@@ -337,8 +352,11 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         com.anipulse.app.ui.schedule.ScheduleScreen(onTitleClick = { id -> navController.navigate("title/$id") })
                     }
                 }
-                composable("library") {
-                    com.anipulse.app.ui.library.LibraryScreen(onTitleClick = { id -> navController.navigate("title/$id") })
+                composable("library") { entry ->
+                    com.anipulse.app.ui.library.LibraryScreen(
+                        onTitleClick = { id -> navController.navigate("title/$id") },
+                        initialFilter = entry.savedStateHandle.get<String>("initialFilter"),
+                    )
                 }
                 composable("profile") { 
                     com.anipulse.app.ui.profile.ProfileScreen(

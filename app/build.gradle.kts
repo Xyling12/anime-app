@@ -28,8 +28,8 @@ android {
         applicationId = "com.anipulse.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.4.9-beta"
+        versionCode = 18
+        versionName = "0.4.10-beta"
     }
 
     signingConfigs {

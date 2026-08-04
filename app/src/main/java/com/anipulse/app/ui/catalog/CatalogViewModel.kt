@@ -156,4 +156,10 @@ class CatalogViewModel @Inject constructor(
         _state.update { it.copy(error = null) }
         loadNextPage()
     }
+
+    fun refresh() {
+        generation++
+        _state.update { it.copy(items = emptyList(), page = 1, endReached = false, isLoading = false, error = null) }
+        loadNextPage()
+    }
 }

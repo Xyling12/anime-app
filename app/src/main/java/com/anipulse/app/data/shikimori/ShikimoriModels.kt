@@ -62,11 +62,20 @@ data class ShikiAnimeDetails(
 // чтобы UI показал свой аккуратный плейсхолдер вместо чужого «404 not found».
 private fun String.isMissingImage() = contains("missing") || contains("/globals/")
 
+private fun String.throughImageGateway(): String {
+    val path = if (startsWith("http://") || startsWith("https://")) {
+        runCatching { java.net.URI(this).rawPath }.getOrNull()
+    } else {
+        this
+    }
+    return com.anipulse.app.data.Api.SHIKIMORI_IMAGES + (path?.takeIf { it.startsWith("/") } ?: "/$this")
+}
+
 fun ShikiImage?.posterUrl(): String? =
-    this?.original?.takeUnless { it.isMissingImage() }?.let { com.anipulse.app.data.Api.SHIKIMORI_IMAGES + it }
+    this?.original?.takeUnless { it.isMissingImage() }?.throughImageGateway()
 
 fun ShikiImage?.previewUrl(): String? =
-    this?.preview?.takeUnless { it.isMissingImage() }?.let { com.anipulse.app.data.Api.SHIKIMORI_IMAGES + it }
+    this?.preview?.takeUnless { it.isMissingImage() }?.throughImageGateway()
 
 /**
  * Постер тайтла с автоподбором: если у Shikimori нет картинки — шлюз найдёт её

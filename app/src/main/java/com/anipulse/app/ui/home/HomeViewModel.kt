@@ -25,6 +25,7 @@ data class HomeState(
     val topRated: List<ShikiAnime> = emptyList(),  // высший рейтинг
     val pulseRatings: Map<Long, Double> = emptyMap(),
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
 )
 
 @HiltViewModel
@@ -32,6 +33,7 @@ class HomeViewModel @Inject constructor(
     private val progressDao: ProgressDao,
     private val repo: AnimeRepository,
     private val gateway: com.anipulse.app.data.GatewayApi,
+    private val syncRepository: com.anipulse.app.data.SyncRepository,
 ) : ViewModel() {
 
     /** Лента «Продолжить просмотр»: недосмотренные тайтлы, свежие сверху. */
@@ -53,7 +55,15 @@ class HomeViewModel @Inject constructor(
     val state: StateFlow<HomeState> = _state.asStateFlow()
 
     init {
+        refresh(initial = true)
+    }
+
+    fun refresh() = refresh(initial = false)
+
+    private fun refresh(initial: Boolean) {
         viewModelScope.launch {
+            _state.update { it.copy(isLoading = initial, isRefreshing = !initial) }
+            runCatching { syncRepository.syncAll() }
             val ongoing = async { runCatching { repo.catalog(page = 1, order = "popularity", status = "ongoing") }.getOrDefault(emptyList()) }
             val popular = async { runCatching { repo.catalog(page = 1, order = "popularity") }.getOrDefault(emptyList()) }
             val ranked = async { runCatching { repo.catalog(page = 1, order = "ranked") }.getOrDefault(emptyList()) }
@@ -70,6 +80,7 @@ class HomeViewModel @Inject constructor(
             }
             loadPulseRatings((ong + popularItems + rankedItems).map { it.id })
             loadRecommendations()
+            _state.update { it.copy(isLoading = false, isRefreshing = false) }
         }
     }
 
@@ -107,7 +118,6 @@ class HomeViewModel @Inject constructor(
                     .thenByDescending { it.first.score?.toFloatOrNull() ?: 0f }
             )
             .map { it.first }
-            .take(20)
         _state.update { it.copy(forYou = recs) }
         loadPulseRatings(recs.map { it.id })
     }

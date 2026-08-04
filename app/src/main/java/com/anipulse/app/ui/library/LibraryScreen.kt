@@ -30,11 +30,18 @@ import com.anipulse.app.data.Api
 import com.anipulse.app.ui.common.PillChip
 
 @Composable
-fun LibraryScreen(onTitleClick: (Long) -> Unit, viewModel: LibraryViewModel = hiltViewModel()) {
+fun LibraryScreen(
+    onTitleClick: (Long) -> Unit,
+    initialFilter: String? = null,
+    viewModel: LibraryViewModel = hiltViewModel(),
+) {
     val all by viewModel.favorites.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val subscriptions by viewModel.subscriptions.collectAsState()
     val subscriptionsLoading by viewModel.subscriptionsLoading.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(initialFilter) {
+        initialFilter?.let(viewModel::setFilter)
+    }
     val filtered = if (filter == "all") all else all.filter { it.status == filter }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {

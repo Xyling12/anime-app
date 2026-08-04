@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,19 +37,35 @@ import kotlinx.coroutines.delay
 private val Pulse = Color(0xFFFF4D8D)
 private val Panel = Color(0xFF15151F)
 
+enum class HomeSection(val route: String) {
+    CONTINUE("continue"),
+    FOR_YOU("for_you"),
+    POPULAR("popular"),
+    TOP_RATED("top_rated");
+
+    companion object {
+        fun fromRoute(value: String?): HomeSection? = entries.firstOrNull { it.route == value }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onTitleClick: (Long) -> Unit,
-    onContinueAll: () -> Unit,
-    onCatalogAll: () -> Unit,
+    onShowAll: (HomeSection) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val continueItems by viewModel.continueWatching.collectAsState()
     val state by viewModel.state.collectAsState()
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = viewModel::refresh,
+        modifier = Modifier.fillMaxSize(),
     ) {
+      Column(
+          Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
         if (state.banner.isNotEmpty()) {
             val pager = rememberPagerState(pageCount = { state.banner.size })
             LaunchedEffect(state.banner.size) {
@@ -105,7 +122,7 @@ fun HomeScreen(
         }
 
         if (continueItems.isNotEmpty()) {
-            SectionTitle("Продолжить просмотр", onContinueAll)
+            SectionTitle("Продолжить просмотр") { onShowAll(HomeSection.CONTINUE) }
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueItems, key = { it.animeId }) { item ->
                     Column(Modifier.width(210.dp).clickable { onTitleClick(item.animeId) }) {
@@ -126,10 +143,11 @@ fun HomeScreen(
                 }
             }
         }
-        if (state.forYou.isNotEmpty()) AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick, onCatalogAll)
-        if (state.popular.isNotEmpty()) AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick, onCatalogAll)
-        if (state.topRated.isNotEmpty()) AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick, onCatalogAll)
+        if (state.forYou.isNotEmpty()) AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.FOR_YOU) }
+        if (state.popular.isNotEmpty()) AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.POPULAR) }
+        if (state.topRated.isNotEmpty()) AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.TOP_RATED) }
         Spacer(Modifier.height(24.dp))
+      }
     }
 }
 
