@@ -37,7 +37,12 @@ private val Pulse = Color(0xFFFF4D8D)
 private val Panel = Color(0xFF15151F)
 
 @Composable
-fun HomeScreen(onTitleClick: (Long) -> Unit, viewModel: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(
+    onTitleClick: (Long) -> Unit,
+    onContinueAll: () -> Unit,
+    onCatalogAll: () -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
+) {
     val continueItems by viewModel.continueWatching.collectAsState()
     val state by viewModel.state.collectAsState()
     Column(
@@ -100,7 +105,7 @@ fun HomeScreen(onTitleClick: (Long) -> Unit, viewModel: HomeViewModel = hiltView
         }
 
         if (continueItems.isNotEmpty()) {
-            SectionTitle("Продолжить просмотр")
+            SectionTitle("Продолжить просмотр", onContinueAll)
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueItems, key = { it.animeId }) { item ->
                     Column(Modifier.width(210.dp).clickable { onTitleClick(item.animeId) }) {
@@ -121,24 +126,29 @@ fun HomeScreen(onTitleClick: (Long) -> Unit, viewModel: HomeViewModel = hiltView
                 }
             }
         }
-        if (state.forYou.isNotEmpty()) AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick)
-        if (state.popular.isNotEmpty()) AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick)
-        if (state.topRated.isNotEmpty()) AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick)
+        if (state.forYou.isNotEmpty()) AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick, onCatalogAll)
+        if (state.popular.isNotEmpty()) AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick, onCatalogAll)
+        if (state.topRated.isNotEmpty()) AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick, onCatalogAll)
         Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable private fun RatingText(text: String, color: Color) = Text(text, style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.SemiBold)
 
-@Composable private fun SectionTitle(title: String) {
+@Composable private fun SectionTitle(title: String, onAll: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("Все ›", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Все ›",
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onAll).padding(8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-@Composable private fun AnimeRail(title: String, items: List<ShikiAnime>, ratings: Map<Long, Double>, onClick: (Long) -> Unit) {
-    SectionTitle(title)
+@Composable private fun AnimeRail(title: String, items: List<ShikiAnime>, ratings: Map<Long, Double>, onClick: (Long) -> Unit, onAll: () -> Unit) {
+    SectionTitle(title, onAll)
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
         items(items, key = { it.id }) { anime ->
             Column(Modifier.width(132.dp).clickable { onClick(anime.id) }) {

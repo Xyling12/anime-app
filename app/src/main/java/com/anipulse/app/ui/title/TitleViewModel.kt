@@ -49,6 +49,7 @@ class TitleViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val gateway: com.anipulse.app.data.GatewayApi,
     private val settings: com.anipulse.app.data.SettingsStore,
+    private val syncRepository: com.anipulse.app.data.SyncRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -138,7 +139,11 @@ class TitleViewModel @Inject constructor(
         val enabled = settings.toggleEpisodeNotify(animeId)
         _state.update { it.copy(episodeNotifyEnabled = enabled) }
         if (enabled && !_state.value.isFavorite) {
-            viewModelScope.launch { favoriteDao.upsert(makeFavorite("planned")) }
+            viewModelScope.launch {
+                val favorite = makeFavorite("planned")
+                favoriteDao.upsert(favorite)
+                runCatching { syncRepository.pushFavorite(favorite) }
+            }
         }
     }
 
@@ -160,8 +165,11 @@ class TitleViewModel @Inject constructor(
         viewModelScope.launch {
             if (s.isFavorite) {
                 favoriteDao.delete(animeId)
+                runCatching { syncRepository.deleteFavorite(animeId) }
             } else {
-                favoriteDao.upsert(makeFavorite("none"))
+                val favorite = makeFavorite("none")
+                favoriteDao.upsert(favorite)
+                runCatching { syncRepository.pushFavorite(favorite) }
             }
         }
     }
@@ -171,7 +179,9 @@ class TitleViewModel @Inject constructor(
         val s = _state.value
         viewModelScope.launch {
             val newStatus = if (s.status == status) "none" else status
-            favoriteDao.upsert(makeFavorite(newStatus))
+            val favorite = makeFavorite(newStatus)
+            favoriteDao.upsert(favorite)
+            runCatching { syncRepository.pushFavorite(favorite) }
         }
     }
 

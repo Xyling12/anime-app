@@ -85,9 +85,8 @@ fun CatalogScreen(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                // справа шире — чтобы не залезать под плавающую кнопку меню ☰
-                .padding(start = 16.dp, end = 72.dp),
+                .height(56.dp)
+                .padding(horizontal = 16.dp),
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFF15151F),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)

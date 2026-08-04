@@ -42,6 +42,7 @@ class PlayerViewModel @Inject constructor(
     private val progressDao: ProgressDao,
     private val settings: com.anipulse.app.data.SettingsStore,
     private val gateway: com.anipulse.app.data.GatewayApi,
+    private val syncRepository: com.anipulse.app.data.SyncRepository,
 ) : ViewModel() {
 
     private val animeId = session.animeId
@@ -147,11 +148,10 @@ class PlayerViewModel @Inject constructor(
     fun saveProgress(positionMs: Long, durationMs: Long) {
         if (animeId == 0L || durationMs <= 0) return
         val s = _state.value
-        val watched = positionMs >= durationMs * 0.9
-        viewModelScope.launch {
+        val watched = positionMs >= durationMs * 0.95
+        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
             runCatching {
-                progressDao.upsert(
-                    EpisodeProgress(
+                val value = EpisodeProgress(
                         animeId = animeId,
                         episode = s.episode,
                         positionMs = positionMs,
@@ -162,7 +162,8 @@ class PlayerViewModel @Inject constructor(
                         posterId = session.posterId,
                         totalEpisodes = session.totalEpisodes,
                     )
-                )
+                progressDao.upsert(value)
+                syncRepository.pushProgress(value)
             }
         }
     }

@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +95,7 @@ fun LibraryScreen(onTitleClick: (Long) -> Unit, viewModel: LibraryViewModel = hi
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(filtered, key = { it.animeId }) { fav ->
+                    var menuExpanded by androidx.compose.runtime.remember(fav.animeId) { androidx.compose.runtime.mutableStateOf(false) }
                     val status = when (fav.status) { "watching" -> "Смотрю"; "planned" -> "В планах"; "completed" -> "Просмотрено"; else -> "В Моём" }
                     LibraryCard(
                         id = fav.animeId,
@@ -102,7 +104,22 @@ fun LibraryScreen(onTitleClick: (Long) -> Unit, viewModel: LibraryViewModel = hi
                         score = fav.score,
                         onClick = { onTitleClick(fav.animeId) },
                         trailing = {
-                            IconButton(onClick = { }) { Icon(Icons.Filled.MoreVert, "Дополнительно", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Filled.MoreVert, "Дополнительно", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    listOf("watching" to "Смотрю", "planned" to "В планах", "completed" to "Просмотрено").forEach { (key, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = { viewModel.setStatus(fav, key); menuExpanded = false },
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Удалить из Моего", color = MaterialTheme.colorScheme.error) },
+                                        onClick = { viewModel.removeFavorite(fav.animeId); menuExpanded = false },
+                                    )
+                                }
+                            }
                         },
                     )
                 }

@@ -100,6 +100,12 @@ before(async () => {
       2: [{ id: 2, type: 'mention', from: 'Alice', fromUserId: 1, text: 'private excerpt' }],
     },
   });
+  writeJson('sync.json', {
+    users: {
+      1: { progress: { '42:1': { animeId: 42, episode: 1, updatedAt: 1 } }, favorites: {} },
+      2: { progress: {}, favorites: {} },
+    },
+  });
   writeJson('reports.json', {
     seq: 2,
     items: [
@@ -186,6 +192,8 @@ test('deletion erases account data and anonymizes retained moderation evidence',
   });
   assert.equal(deleted.status, 200);
   assert.equal(readJson('users.json').users.some(user => user.id === 1), false);
+  assert.equal(readJson('sync.json').users['1'], undefined);
+  assert.deepEqual(readJson('sync.json').users['2'], { progress: {}, favorites: {} });
   assert.equal(readJson('chat.json').messages.some(message => message.userId === 1), false);
   assert.deepEqual(readJson('chat.json').messages[0].replyTo, {
     id: 1, userId: null, nick: 'Удалённый аккаунт', text: 'Сообщение удалено',

@@ -248,6 +248,36 @@ data class ReportRequest(
 )
 
 @Serializable
+data class SyncedProgress(
+    val animeId: Long,
+    val episode: Int,
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val watched: Boolean = false,
+    val dubId: String? = null,
+    val title: String = "",
+    val posterId: Long = 0,
+    val totalEpisodes: Int = 0,
+    val updatedAt: Long = 0,
+)
+
+@Serializable
+data class SyncedFavorite(
+    val animeId: Long,
+    val title: String = "",
+    val score: String? = null,
+    val status: String = "none",
+    val updatedAt: Long = 0,
+    val deleted: Boolean = false,
+)
+
+@Serializable
+data class SyncPayload(
+    val progress: List<SyncedProgress> = emptyList(),
+    val favorites: List<SyncedFavorite> = emptyList(),
+)
+
+@Serializable
 data class DeleteAccountRequest(val confirm: String = "DELETE")
 
 @Serializable
@@ -305,6 +335,17 @@ interface GatewayApi {
 
     @GET("anilibria-updates")
     suspend fun anilibriaUpdates(): List<AnilibriaUpdate>
+
+    @GET("sync")
+    suspend fun syncState(
+        @retrofit2.http.Header("Authorization") bearer: String,
+    ): SyncPayload
+
+    @retrofit2.http.POST("sync")
+    suspend fun mergeSyncState(
+        @retrofit2.http.Header("Authorization") bearer: String,
+        @retrofit2.http.Body body: SyncPayload,
+    ): SyncPayload
 
     @retrofit2.http.POST("auth/register")
     suspend fun register(@retrofit2.http.Body body: RegisterRequest): AuthResponse

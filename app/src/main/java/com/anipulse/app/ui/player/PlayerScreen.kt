@@ -2,9 +2,11 @@ package com.anipulse.app.ui.player
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.util.Rational
 import android.view.WindowManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
@@ -89,6 +92,15 @@ import com.anipulse.app.data.video.Dub
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private fun Activity.hidePlayerSystemBars() {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    WindowCompat.getInsetsController(window, window.decorView).apply {
+        systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        hide(WindowInsetsCompat.Type.systemBars())
+    }
+}
 
 @Composable
 fun PlayerScreen(
@@ -105,7 +117,10 @@ fun PlayerScreen(
         val window = activity?.window
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    activity?.hidePlayerSystemBars()
+                }
                 Lifecycle.Event.ON_STOP -> window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else -> Unit
             }
@@ -113,15 +128,14 @@ fun PlayerScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        activity?.window?.let { w ->
-            WindowCompat.getInsetsController(w, w.decorView).hide(WindowInsetsCompat.Type.systemBars())
-        }
+        activity?.hidePlayerSystemBars()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity?.window?.let { w ->
                 WindowCompat.getInsetsController(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
+                WindowCompat.setDecorFitsSystemWindows(w, true)
                 // вернуть авто-яркость
                 w.attributes = w.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
             }
@@ -190,7 +204,7 @@ private fun NativePlayer(
     }
     DisposableEffect(exo, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
+            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) {
                 exo.pause()
                 viewModel.saveProgress(exo.currentPosition, exo.duration.coerceAtLeast(0))
             }
@@ -242,6 +256,7 @@ private fun NativePlayer(
     var seekFeedback by remember { mutableStateOf(0) }        // -1 / +1 / 0
     var brightnessOverlay by remember { mutableFloatStateOf(-1f) }
     var volumeOverlay by remember { mutableFloatStateOf(-1f) }
+    var gestureVolume by remember { mutableFloatStateOf(0f) }
 
     DisposableEffect(exo) {
         val listener = object : Player.Listener {
@@ -306,8 +321,15 @@ private fun NativePlayer(
                 )
             }
             // Свайпы по вертикали: слева — яркость, справа — громкость
-            .pointerInput(Unit) {
-                detectVerticalDragGestures { change, dy ->
+            .pointerInput(audio, screenH) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        if (offset.x >= screenW / 2) {
+                            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                            gestureVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+                        }
+                    },
+                ) { change, dy ->
                     if (change.position.x < screenW / 2) {
                         val win = activity?.window ?: return@detectVerticalDragGestures
                         val attrs = win.attributes
@@ -317,10 +339,10 @@ private fun NativePlayer(
                         brightnessOverlay = b
                     } else {
                         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                        val cur = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-                        val nv = (cur + (-dy / screenH * max * 1.5f)).toInt().coerceIn(0, max)
+                        gestureVolume = (gestureVolume - dy / screenH * 1.5f).coerceIn(0f, 1f)
+                        val nv = (gestureVolume * max).roundToInt().coerceIn(0, max)
                         audio.setStreamVolume(AudioManager.STREAM_MUSIC, nv, 0)
-                        volumeOverlay = nv.toFloat() / max
+                        volumeOverlay = gestureVolume
                     }
                 }
             },
@@ -385,6 +407,16 @@ private fun NativePlayer(
                     }
                     IconButton(onClick = { commentsMenu = !commentsMenu; settingsMenu = false; dubMenu = false; qualityMenu = false }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Комментарии к серии", tint = Color.White)
+                    }
+                    IconButton(
+                        onClick = {
+                            activity?.enterPictureInPictureMode(
+                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build(),
+                            )
+                            controlsVisible = false
+                        },
+                    ) {
+                        Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "Плавающее окно", tint = Color.White)
                     }
                     IconButton(onClick = { settingsMenu = !settingsMenu; dubMenu = false; qualityMenu = false; commentsMenu = false }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Настройки", tint = Color.White)

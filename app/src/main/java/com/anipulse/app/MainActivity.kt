@@ -11,7 +11,15 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +40,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settings: SettingsStore
     @Inject lateinit var gateway: GatewayApi
+    @Inject lateinit var syncRepository: com.anipulse.app.data.SyncRepository
 
     private val scope = MainScope()
     /** После обмена одноразового App Link-кода токен дополнительно проверяется через /auth/me
@@ -60,6 +69,7 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
         handleAuthDeepLink(intent)
+        scope.launch { runCatching { syncRepository.syncAll() } }
         if (savedInstanceState == null) {
             com.anipulse.app.notify.SoundPlayer.playMessageSound(this)
         }
@@ -92,6 +102,7 @@ class MainActivity : ComponentActivity() {
                             settings.authToken = token
                             settings.authNick = nick
                             settings.authEmail = null
+                            scope.launch { runCatching { syncRepository.syncAll() } }
                             sendBroadcast(Intent(ACTION_AUTH_CHANGED).setPackage(packageName))
                             pendingLogin = null
                             Toast.makeText(this@MainActivity, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
@@ -104,7 +115,14 @@ class MainActivity : ComponentActivity() {
             if (!showLaunch && showBetaNotice) {
                 AlertDialog(
                     onDismissRequest = {},
-                    title = { Text("AniPulse находится в бета-режиме") },
+                    icon = {
+                        androidx.compose.foundation.layout.Box(
+                            androidx.compose.ui.Modifier
+                                .background(androidx.compose.ui.graphics.Color(0x33FF4D8D), androidx.compose.foundation.shape.CircleShape)
+                                .padding(14.dp),
+                        ) { Icon(Icons.Filled.Info, null, tint = androidx.compose.ui.graphics.Color(0xFFFF4D8D)) }
+                    },
+                    title = { Text("AniPulse в бета-режиме", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
                     text = {
                         Text(
                             "В приложении ещё могут встречаться ошибки и недоработки. " +
@@ -113,17 +131,21 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     confirmButton = {
-                        TextButton(
+                        Button(
                             onClick = {
                                 betaNoticePrefs.edit()
                                     .putBoolean("beta_notice_0_4_seen", true)
                                     .apply()
                                 showBetaNotice = false
                             },
+                            colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF4D8D)),
                         ) {
                             Text("Понятно")
                         }
                     },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+                    containerColor = androidx.compose.ui.graphics.Color(0xFF15151F),
+                    tonalElevation = 0.dp,
                 )
             }
             }

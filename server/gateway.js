@@ -676,6 +676,7 @@ const COMMENTS_FILE = dataPath('comments.json');
 const RATINGS_FILE = dataPath('ratings.json');
 const BLOCKS_FILE = dataPath('blocks.json');
 const REPORTS_FILE = dataPath('reports.json');
+const SYNC_FILE = dataPath('sync.json');
 // «Файла нет» → дефолт (норма при первом запуске). «Файл есть, но не парсится» → throw:
 // иначе следующий saveJson молча затёр бы всё хранилище дефолтом (полная потеря чата/ЛС и т.п.).
 // throw ловится общим обработчиком route() → клиент получит 500, данные останутся нетронуты.
@@ -708,6 +709,62 @@ function authUser(req) {
   return u;
 }
 function sanitizeText(t, max) { return String(t || '').replace(/\s+/g, ' ').trim().slice(0, max); }
+
+function sanitizeSyncProgress(value) {
+  const animeId = Math.trunc(Number(value && value.animeId));
+  const episode = Math.trunc(Number(value && value.episode));
+  if (!Number.isSafeInteger(animeId) || animeId < 1 || !Number.isSafeInteger(episode) || episode < 1 || episode > 100000) return null;
+  const durationMs = Math.min(24 * 60 * 60 * 1000, Math.max(0, Math.trunc(Number(value.durationMs) || 0)));
+  const positionMs = Math.min(durationMs || 24 * 60 * 60 * 1000, Math.max(0, Math.trunc(Number(value.positionMs) || 0)));
+  const updatedAt = Math.min(Date.now() + 5 * 60 * 1000, Math.max(1, Math.trunc(Number(value.updatedAt) || Date.now())));
+  return {
+    animeId, episode, positionMs, durationMs, watched: value.watched === true,
+    dubId: sanitizeText(value.dubId, 120) || null, title: sanitizeText(value.title, 200),
+    posterId: Math.max(0, Math.trunc(Number(value.posterId) || animeId)),
+    totalEpisodes: Math.min(100000, Math.max(0, Math.trunc(Number(value.totalEpisodes) || 0))), updatedAt,
+  };
+}
+function sanitizeSyncFavorite(value) {
+  const animeId = Math.trunc(Number(value && value.animeId));
+  if (!Number.isSafeInteger(animeId) || animeId < 1) return null;
+  const updatedAt = Math.min(Date.now() + 5 * 60 * 1000, Math.max(1, Math.trunc(Number(value.updatedAt) || Date.now())));
+  const status = ['none', 'watching', 'planned', 'completed'].includes(value.status) ? value.status : 'none';
+  return {
+    animeId, title: sanitizeText(value.title, 200), score: sanitizeText(value.score, 20) || null,
+    status, updatedAt, deleted: value.deleted === true,
+  };
+}
+function syncResponse(entry) {
+  return {
+    progress: Object.values(entry.progress || {}).slice(-5000),
+    favorites: Object.values(entry.favorites || {}).slice(-2000),
+  };
+}
+async function handleSync(req, res) {
+  const user = authUser(req);
+  if (!user) return jsonRes(res, 401, { error: 'auth' });
+  const all = loadJson(SYNC_FILE, { users: {} });
+  all.users = all.users || {};
+  const entry = all.users[user.id] || { progress: {}, favorites: {} };
+  entry.progress = entry.progress || {}; entry.favorites = entry.favorites || {};
+  if (req.method === 'GET') return jsonRes(res, 200, syncResponse(entry));
+  if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  if (tooMany(userHits, 'sync:' + user.id, 120, 60 * 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
+  const body = await readBody(req);
+  for (const raw of Array.isArray(body && body.progress) ? body.progress.slice(0, 5000) : []) {
+    const item = sanitizeSyncProgress(raw); if (!item) continue;
+    const key = item.animeId + ':' + item.episode, old = entry.progress[key];
+    if (!old || Number(item.updatedAt) >= Number(old.updatedAt || 0)) entry.progress[key] = item;
+  }
+  for (const raw of Array.isArray(body && body.favorites) ? body.favorites.slice(0, 2000) : []) {
+    const item = sanitizeSyncFavorite(raw); if (!item) continue;
+    const key = String(item.animeId), old = entry.favorites[key];
+    if (!old || Number(item.updatedAt) >= Number(old.updatedAt || 0)) entry.favorites[key] = item;
+  }
+  all.users[user.id] = entry;
+  saveJson(SYNC_FILE, all);
+  return jsonRes(res, 200, syncResponse(entry));
+}
 function blocksDb() { return loadJson(BLOCKS_FILE, {}); }
 function blockedIds(db, userId) { return (db[String(userId)] || []).map(Number); }
 function hasBlocked(db, userId, targetId) { return blockedIds(db, userId).includes(Number(targetId)); }
@@ -776,6 +833,10 @@ function deleteAccountData(user) {
   const blocks = blocksDb(); delete blocks[user.id];
   for (const key of Object.keys(blocks)) blocks[key] = blockedIds(blocks, key).filter(id => id !== user.id);
   saveJson(BLOCKS_FILE, blocks);
+
+  const sync = loadJson(SYNC_FILE, { users: {} });
+  if (sync.users) delete sync.users[user.id];
+  saveJson(SYNC_FILE, sync);
 
   const reports = loadReports();
   for (const r of reports.items) {
@@ -1981,7 +2042,7 @@ function handlePrivacyPage(res) {
 <h2>Какие данные мы собираем</h2>
 <p>При регистрации: ник, почта, пароль (хранится только в виде необратимого хеша scrypt — мы никогда не видим и не храним пароль в открытом виде). При входе через VK/Яндекс — идентификатор вашего аккаунта в этом сервисе, без пароля.</p>
 <p>По желанию: аватар (готовый пресет или загруженное и обрезанное пользователем изображение), короткое «о себе», любимый жанр.</p>
-<p>Статистика просмотра (число серий, минут, тайтлов, избранного) синхронизируется с сервером как агрегированные числа для карточки профиля. Сам список просмотренного и прогресс серий хранятся только в локальной базе приложения на защищённом хранилище Android и на сервер не передаются. Токен входа и настройки приложения хранятся отдельно в зашифрованном хранилище.</p>
+<p>Для вошедших пользователей список «Моё», статусы тайтлов и прогресс серий (номер серии, позиция, длительность и время обновления) синхронизируются с сервером, чтобы продолжать просмотр на сайте и других устройствах. Эти данные доступны только владельцу аккаунта, хранятся до их удаления или удаления аккаунта и не передаются поставщикам каталога или видео. Токен входа и настройки приложения хранятся отдельно в зашифрованном хранилище Android.</p>
 <p>Контент, который вы создаёте сами: сообщения в чате и личных сообщениях, комментарии, оценки тайтлов, заявки в друзья — хранится на нашем сервере, чтобы работать для всех пользователей.</p>
 <p>Автоматически: IP-адрес (только для защиты от злоупотреблений — ограничение частоты запросов, не хранится долговременно), при добровольной отправке баг-репорта — модель устройства и версия Android.</p>
 <h2>Как мы используем данные</h2>
@@ -2031,7 +2092,7 @@ function handleCommunityRulesPage(res) {
 
 function handleConsentPage(res) {
   const cfg = legalCfg(), contact = cfg.contact || LEGAL_CONTACT;
-  sendLegalPage(res, 'Согласие на обработку персональных данных', `<p>Я свободно, своей волей и в своём интересе даю ${cfg.operatorName}, адрес: ${cfg.operatorAddress}, согласие на автоматизированную обработку моих данных: ника, email, ID аккаунта, аватара, профиля, оценок, списков, статистики, сообщений, комментариев, жалоб и технических данных.</p><p>Цели: создание и защита аккаунта, синхронизация, социальные функции, модерация, уведомления и техническая поддержка. Действия: сбор, запись, хранение, уточнение, использование, передача указанным в политике обработчикам, блокирование, удаление и уничтожение.</p><p>При отдельном выборе источника Kodik пользовательское устройство может передать IP-адрес и стандартные технические сведения сетевого запроса CDN, расположенному в Нидерландах, исключительно для доставки выбранного видеопотока. Ник, email, сообщения и токен AniPulse не передаются.</p><p>Согласие действует до удаления аккаунта или отзыва согласия. Отозвать его можно письмом на <a href="mailto:${contact}">${contact}</a> или удалением аккаунта. <a href="/privacy">Полная политика</a>.</p>`);
+  sendLegalPage(res, 'Согласие на обработку персональных данных', `<p>Я свободно, своей волей и в своём интересе даю ${cfg.operatorName}, адрес: ${cfg.operatorAddress}, согласие на автоматизированную обработку моих данных: ника, email, ID аккаунта, аватара, профиля, оценок, списков, прогресса просмотра, статистики, сообщений, комментариев, жалоб и технических данных.</p><p>Цели: создание и защита аккаунта, синхронизация, социальные функции, модерация, уведомления и техническая поддержка. Действия: сбор, запись, хранение, уточнение, использование, передача указанным в политике обработчикам, блокирование, удаление и уничтожение.</p><p>При отдельном выборе источника Kodik пользовательское устройство может передать IP-адрес и стандартные технические сведения сетевого запроса CDN, расположенному в Нидерландах, исключительно для доставки выбранного видеопотока. Ник, email, сообщения и токен AniPulse не передаются.</p><p>Согласие действует до удаления аккаунта или отзыва согласия. Отозвать его можно письмом на <a href="mailto:${contact}">${contact}</a> или удалением аккаунта. <a href="/privacy">Полная политика</a>.</p>`);
 }
 
 function handleRightHoldersPage(res) {
@@ -2122,6 +2183,7 @@ async function route(req, res) {
   if (req.url.startsWith('/alapi/dm')) return handleDm(req, res);
   if (req.url.startsWith('/alapi/chat')) return handleChat(req, res);
   if (req.url.startsWith('/alapi/comments')) return handleComments(req, res);
+  if (req.url.startsWith('/alapi/sync')) return handleSync(req, res);
   if (req.url.startsWith('/alapi/rating')) return handleRating(req, res);
   if (req.url.startsWith('/alapi/avatar-upload')) return handleAvatarUpload(req, res);
   if (req.url.startsWith('/alapi/avatar-img')) return handleAvatarImg(req, res);

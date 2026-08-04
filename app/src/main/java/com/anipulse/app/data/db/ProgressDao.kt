@@ -17,6 +17,9 @@ interface ProgressDao {
     @Query("SELECT * FROM episode_progress WHERE animeId = :animeId")
     suspend fun forAnime(animeId: Long): List<EpisodeProgress>
 
+    @Query("SELECT * FROM episode_progress")
+    suspend fun allOnce(): List<EpisodeProgress>
+
     @Query("SELECT * FROM episode_progress WHERE animeId = :animeId")
     fun forAnimeFlow(animeId: Long): Flow<List<EpisodeProgress>>
 

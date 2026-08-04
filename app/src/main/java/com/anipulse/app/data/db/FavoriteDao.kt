@@ -26,6 +26,9 @@ interface FavoriteDao {
     @Query("SELECT COUNT(*) FROM favorites")
     suspend fun count(): Int
 
+    @Query("SELECT COUNT(*) FROM favorites WHERE status = :status")
+    suspend fun countByStatus(status: String): Int
+
     /** Разовый список — для фонового воркера уведомлений о новых сериях. */
     @Query("SELECT * FROM favorites")
     suspend fun allOnce(): List<Favorite>

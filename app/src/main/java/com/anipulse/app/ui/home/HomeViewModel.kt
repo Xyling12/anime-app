@@ -37,7 +37,16 @@ class HomeViewModel @Inject constructor(
     /** Лента «Продолжить просмотр»: недосмотренные тайтлы, свежие сверху. */
     val continueWatching: StateFlow<List<EpisodeProgress>> =
         progressDao.continueWatching()
-            .map { list -> list.filter { !it.watched && it.positionMs > 1000 } }
+            .map { list ->
+                list.mapNotNull { item ->
+                    when {
+                        !item.watched && item.positionMs > 1000 -> item
+                        item.watched && (item.totalEpisodes == 0 || item.episode < item.totalEpisodes) ->
+                            item.copy(episode = item.episode + 1, positionMs = 0, watched = false)
+                        else -> null
+                    }
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _state = MutableStateFlow(HomeState())

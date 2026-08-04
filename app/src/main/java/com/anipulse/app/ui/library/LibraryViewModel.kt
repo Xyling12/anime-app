@@ -19,9 +19,10 @@ import javax.inject.Inject
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
-    favoriteDao: FavoriteDao,
+    private val favoriteDao: FavoriteDao,
     private val settings: SettingsStore,
     private val repository: AnimeRepository,
+    private val syncRepository: com.anipulse.app.data.SyncRepository,
 ) : ViewModel() {
 
     val favorites: StateFlow<List<Favorite>> = favoriteDao.all()
@@ -40,6 +41,21 @@ class LibraryViewModel @Inject constructor(
     init { refreshSubscriptions() }
 
     fun setFilter(f: String) { _filter.value = f }
+
+    fun setStatus(favorite: Favorite, status: String) {
+        viewModelScope.launch {
+            val updated = favorite.copy(status = status, addedAt = System.currentTimeMillis())
+            favoriteDao.upsert(updated)
+            runCatching { syncRepository.pushFavorite(updated) }
+        }
+    }
+
+    fun removeFavorite(animeId: Long) {
+        viewModelScope.launch {
+            favoriteDao.delete(animeId)
+            runCatching { syncRepository.deleteFavorite(animeId) }
+        }
+    }
 
     fun refreshSubscriptions() {
         val ids = settings.episodeNotifyIds.mapNotNull(String::toLongOrNull).distinct().take(30)

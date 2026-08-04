@@ -21,6 +21,9 @@ data class ProfileState(
     val watchTimeMs: Long = 0,
     val startedTitles: Int = 0,
     val favoritesCount: Int = 0,
+    val watchingTitles: Int = 0,
+    val plannedTitles: Int = 0,
+    val completedTitles: Int = 0,
     val autoSkipOpening: Boolean = false,
     val autoSkipRecap: Boolean = false,
     val autoNextEpisode: Boolean = true,
@@ -51,6 +54,7 @@ class ProfileViewModel @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val settings: SettingsStore,
     private val gateway: GatewayApi,
+    private val syncRepository: com.anipulse.app.data.SyncRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -66,8 +70,11 @@ class ProfileViewModel @Inject constructor(
     val state: StateFlow<ProfileState> = _state.asStateFlow()
 
     init {
-        refresh()
-        syncStatsToServer()
+        viewModelScope.launch {
+            runCatching { syncRepository.syncAll() }
+            refresh()
+            syncStatsToServer()
+        }
         refreshMe()
     }
 
@@ -138,6 +145,8 @@ class ProfileViewModel @Inject constructor(
                 settings.authToken = resp.token
                 settings.authNick = resp.nick
                 settings.authEmail = resp.email
+                runCatching { syncRepository.syncAll() }
+                refresh()
                 _state.update { it.copy(nick = resp.nick, email = resp.email, authBusy = false, authError = null) }
                 runCatching { gateway.me("Bearer ${resp.token}") }.onSuccess { me ->
                     val resolvedNick = me.nick ?: resp.nick
@@ -383,6 +392,9 @@ class ProfileViewModel @Inject constructor(
                     watchTimeMs = runCatching { progressDao.totalWatchTimeMs() }.getOrDefault(0),
                     startedTitles = runCatching { progressDao.startedTitles() }.getOrDefault(0),
                     favoritesCount = runCatching { favoriteDao.count() }.getOrDefault(0),
+                    watchingTitles = runCatching { favoriteDao.countByStatus("watching") }.getOrDefault(0),
+                    plannedTitles = runCatching { favoriteDao.countByStatus("planned") }.getOrDefault(0),
+                    completedTitles = runCatching { favoriteDao.countByStatus("completed") }.getOrDefault(0),
                 )
             }
         }

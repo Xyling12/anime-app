@@ -234,7 +234,7 @@ fun ProfileScreen(
             color = Color(0xFF15151F), shape = RoundedCornerShape(16.dp),
         ) {
             Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProfileStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Серий")
+                ProfileStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Досмотрено")
                 ProfileStat(Modifier.weight(1f), "$hours ч", "Просмотр")
                 ProfileStat(Modifier.weight(1f), "${state.startedTitles}", "Начато")
                 ProfileStat(Modifier.weight(1f), "${state.favoritesCount}", "В Моём")
@@ -582,9 +582,9 @@ private fun ProfileRedesign(
 
         Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
             Row(Modifier.fillMaxWidth().height(72.dp), verticalAlignment = Alignment.CenterVertically) {
-                ReferenceStat(Modifier.weight(1f), "${state.startedTitles}", "Смотрю")
-                ReferenceStat(Modifier.weight(1f), "${state.favoritesCount}", "В планах")
-                ReferenceStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Просмотрено")
+                ReferenceStat(Modifier.weight(1f), "${state.watchingTitles}", "Смотрю")
+                ReferenceStat(Modifier.weight(1f), "${state.plannedTitles}", "В планах")
+                ReferenceStat(Modifier.weight(1f), "${state.completedTitles}", "Просмотрено")
                 ReferenceStat(Modifier.weight(1f), if (hours > 999) "${hours / 1000}.${(hours % 1000) / 100}K" else "$hours", "Часов")
             }
         }

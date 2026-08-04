@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -128,10 +129,16 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         updateInfo?.takeIf { !updateDismissed }?.let { u ->
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { updateDismissed = true },
-                title = { Text("Доступно обновление ${u.versionName}") },
-                text = { Text("Скачается через браузер — после загрузки открой файл и установи.") },
+                icon = {
+                    Box(
+                        Modifier.background(Color(0x33FF4D8D), CircleShape).padding(14.dp),
+                    ) { Icon(Icons.Filled.Download, null, tint = Color(0xFFFF4D8D)) }
+                },
+                title = { Text("Новая версия ${u.versionName}", fontWeight = FontWeight.Bold) },
+                text = { Text("Мы подготовили обновление AniPulse. APK скачается через браузер — откройте файл после загрузки, чтобы установить новую версию.") },
                 confirmButton = {
-                    androidx.compose.material3.TextButton(onClick = {
+                    androidx.compose.material3.Button(
+                        onClick = {
                         runCatching {
                             val updateUri = android.net.Uri.parse(u.url)
                             require(updateUri.scheme == "https" && updateUri.host == "anipulsetv.ru" && updateUri.path == "/alapi/apk")
@@ -140,11 +147,16 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             )
                         }
                         updateDismissed = true
-                    }) { Text("Обновить") }
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
+                    ) { Text("Обновить") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { updateDismissed = true }) { Text("Позже") }
                 },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+                containerColor = Color(0xFF15151F),
+                tonalElevation = 0.dp,
             )
         }
 
@@ -246,6 +258,8 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                                 com.anipulse.app.ui.home.HomeScreen(
                                     onTitleClick = { id -> navController.navigate("title/$id") },
+                                    onContinueAll = { navController.navigate("library") },
+                                    onCatalogAll = { navController.navigate("catalog") },
                                 )
                             }
                         }
