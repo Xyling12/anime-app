@@ -63,11 +63,7 @@ data class ShikiAnimeDetails(
 private fun String.isMissingImage() = contains("missing") || contains("/globals/")
 
 private fun String.throughImageGateway(): String {
-    val path = if (startsWith("http://") || startsWith("https://")) {
-        runCatching { java.net.URI(this).rawPath }.getOrNull()
-    } else {
-        this
-    }
+    val path = runCatching { java.net.URI(this).rawPath }.getOrNull()
     return com.anipulse.app.data.Api.SHIKIMORI_IMAGES + (path?.takeIf { it.startsWith("/") } ?: "/$this")
 }
 

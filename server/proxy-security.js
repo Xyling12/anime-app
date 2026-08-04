@@ -86,7 +86,8 @@ function publicProxyPolicy(alias, target) {
   const url = new URL(target);
   const path = url.pathname;
   if (alias === 'shikimori') {
-    if (/^\/system\/animes\/(?:original|preview|x48|x96)\/[a-z0-9_./-]+\.(?:avif|gif|jpe?g|png|webp)$/i.test(path) && !url.search) {
+    if (/^\/system\/animes\/(?:original|preview|x48|x96)\/[a-z0-9_./-]+\.(?:avif|gif|jpe?g|png|webp)$/i.test(path) &&
+        (!url.search || /^\?\d{1,20}$/.test(url.search))) {
       return { kind: 'image', maxBytes: 4 * 1024 * 1024 };
     }
     if (path === '/api/animes') {
