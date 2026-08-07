@@ -151,6 +151,9 @@ fun TitleScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                         }
                         if (d != null) {
+                            com.anipulse.app.ui.common.AgeRatingBadge(
+                                Modifier.align(Alignment.TopStart).padding(top = 92.dp, start = 12.dp),
+                            )
                             if (d.status == "ongoing") {
                                 IconButton(
                                     onClick = viewModel::toggleEpisodeNotification,

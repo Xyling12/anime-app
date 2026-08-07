@@ -242,6 +242,26 @@ fun ProfileScreen(
             }
         }
 
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            color = Color(0xFF15151F),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.anipulse.app.ui.common.AgeRatingBadge()
+                Text(
+                    "AniPulse содержит материалы для совершеннолетней аудитории",
+                    Modifier.padding(start = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         // Плашка подтверждения почты (без него закрыты чат/комменты/ЛС)
         if (state.nick != null && !state.emailVerified) {
             var code by remember { mutableStateOf("") }
@@ -260,7 +280,7 @@ fun ProfileScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Мы отправили 6-значный код на ${state.email ?: "вашу почту"}. Без подтверждения закрыты чат, комментарии и ЛС.",
+                    "Мы отправили 6-значный код на ${state.email ?: "вашу почту"}. Подтвердите адрес для защиты аккаунта и публикации комментариев.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -331,7 +351,7 @@ fun ProfileScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             ) { Text("У меня уже есть аккаунт — войти") }
             Text(
-                "Аккаунт откроет чат, комментарии и свой рейтинг",
+                "Аккаунт сохранит списки, историю просмотра, комментарии и ваш рейтинг",
                 Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -624,6 +644,9 @@ private fun ProfileRedesign(
             }
             ReferenceRow(Icons.Outlined.Security, "Конфиденциальность", onClick = {
                 openUrl(context, "https://anipulsetv.ru/privacy")
+            })
+            ReferenceRow(Icons.Outlined.Security, "Согласие на обработку персональных данных", onClick = {
+                openUrl(context, "https://anipulsetv.ru/personal-data-consent")
             })
             ReferenceRow(Icons.Outlined.Info, "Пользовательское соглашение", onClick = {
                 openUrl(context, "https://anipulsetv.ru/terms")

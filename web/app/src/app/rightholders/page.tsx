@@ -6,7 +6,7 @@ export default function RightHolders() {
       <div className="space-y-3 text-text-muted">
         <p>AniPulse не хранит и не размещает видеофайлы на своих серверах. Плеер воспроизводит контент со сторонних источников по публично доступным ссылкам.</p>
         <p>Мы можем убрать привязку конкретного тайтла в нашем каталоге, но не можем удалить сам файл у стороннего источника.</p>
-        <p>По вопросам удаления привязки пишите: <a className="text-primary" href="mailto:anipulse.noreply@yandex.ru">anipulse.noreply@yandex.ru</a> — с указанием тайтла и подтверждением прав.</p>
+        <p>Оператор сервиса: Ившин Максим Сергеевич. По вопросам удаления привязки пишите: <a className="text-primary" href="mailto:marc.1010@yandex.ru">marc.1010@yandex.ru</a> — с указанием тайтла и подтверждением прав.</p>
       </div>
     </div>
   );

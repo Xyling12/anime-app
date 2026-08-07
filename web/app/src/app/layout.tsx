@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   description: "Находите новые аниме, следите за выходом серий, сохраняйте тайтлы в коллекцию и продолжайте просмотр на сайте и в Android-приложении AniPulse.",
   openGraph: {
     title: "AniPulse — истории в вашем ритме",
-    description: "Каталог аниме, расписание новых серий, личная коллекция и сообщество.",
+    description: "Каталог аниме, расписание новых серий и личная коллекция.",
     type: "website",
     locale: "ru_RU",
     siteName: "AniPulse",

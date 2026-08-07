@@ -164,6 +164,9 @@ fun PlayerScreen(
                 ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White) }
             }
         }
+        com.anipulse.app.ui.common.AgeRatingBadge(
+            Modifier.align(Alignment.BottomEnd).padding(12.dp),
+        )
     }
 }
 
@@ -394,6 +397,7 @@ private fun NativePlayer(
                         color = Color.White, fontWeight = FontWeight.Medium,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.padding(start = 10.dp))
                     Spacer(Modifier.weight(1f))
                     // Выбор качества
                     val qualities = state.stream?.byQuality?.keys?.sortedDescending().orEmpty()

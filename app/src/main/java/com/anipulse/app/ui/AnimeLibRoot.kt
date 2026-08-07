@@ -26,8 +26,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
@@ -160,9 +158,6 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             )
         }
 
-        val dmUnread by menuViewModel.dmUnread.collectAsState()
-        val notifUnread by menuViewModel.notifUnread.collectAsState()
-
         Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -187,20 +182,6 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            BadgedIconButton(
-                                icon = Icons.Filled.Forum,
-                                contentDescription = "Чаты",
-                                showBadge = dmUnread,
-                                onClick = { navController.navigate("chats") { launchSingleTop = true } },
-                            )
-                            BadgedIconButton(
-                                icon = Icons.Filled.Notifications,
-                                contentDescription = "Уведомления",
-                                showBadge = notifUnread,
-                                onClick = { navController.navigate("notifications") { launchSingleTop = true } },
-                            )
-                        }
                     }
                     }
                 }
@@ -278,70 +259,6 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                                 )
                             }
                         }
-                composable(
-                    "chats",
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.ChatsScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenGlobalChat = { navController.navigate("chat") },
-                        onOpenDms = { navController.navigate("dms") },
-                        onOpenNotifications = { navController.navigate("notifications") },
-                        onOpenFriends = { navController.navigate("friends") },
-                    )
-                }
-                composable(
-                    "friends",
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.FriendsScreen(
-                        onBack = { navController.popBackStack() },
-                        onWrite = { nick -> navController.navigate("dm/$nick") },
-                    )
-                }
-                composable(
-                    "notifications",
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.NotificationsScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenDm = { nick -> navController.navigate("dm/$nick") },
-                        onOpenGlobalChat = { navController.navigate("chat") },
-                        onOpenFriends = { navController.navigate("friends") },
-                    )
-                }
-                composable(
-                    "chat",
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.ChatScreen(
-                        onBack = { navController.popBackStack() },
-                        onGoProfile = { navController.navigate("profile") },
-                        onOpenDm = { nick -> navController.navigate("dm/$nick") },
-                    )
-                }
-                composable(
-                    "dms",
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.DmListScreen(
-                        onBack = { navController.popBackStack() },
-                        onOpenThread = { nick -> navController.navigate("dm/$nick") },
-                    )
-                }
-                composable(
-                    "dm/{nick}",
-                    arguments = listOf(navArgument("nick") { type = NavType.StringType }),
-                    enterTransition = { pushEnter }, exitTransition = { pushExit },
-                    popEnterTransition = { pushPopEnter }, popExitTransition = { pushPopExit },
-                ) {
-                    com.anipulse.app.ui.chat.DmChatScreen(onBack = { navController.popBackStack() })
-                }
                 composable("catalog") {
                     CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                         CatalogScreen(onTitleClick = { id -> navController.navigate("title/$id") })
@@ -375,7 +292,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         TitleScreen(
                             onBack = { navController.popBackStack() },
                             onPlay = { navController.navigate("player") },
-                            onOpenDm = { nick -> navController.navigate("dm/$nick") },
+                            onOpenDm = { },
                         )
                     }
                 }

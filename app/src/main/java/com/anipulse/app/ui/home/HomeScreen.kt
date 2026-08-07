@@ -86,6 +86,7 @@ fun HomeScreen(
                         model = posterPreviewOf(anime.id, anime.image), contentDescription = null,
                         modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                     )
+                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.TopEnd).padding(12.dp))
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF209090F)), startY = 80f)))
                     Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
                         Text("ОНГОИНГ", style = MaterialTheme.typography.labelSmall, color = Pulse, fontWeight = FontWeight.Bold)
@@ -128,6 +129,7 @@ fun HomeScreen(
                     Column(Modifier.width(210.dp).clickable { onTitleClick(item.animeId) }) {
                         Box(Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(14.dp)).background(Panel)) {
                             AsyncImage(Api.GATEWAY + "poster/${item.posterId}", null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD909090F)))))
                             Surface(Modifier.align(Alignment.BottomStart).padding(8.dp), color = Color(0xD915151F), shape = RoundedCornerShape(7.dp)) {
                                 Text("Серия ${item.episode}", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
@@ -172,6 +174,7 @@ fun HomeScreen(
             Column(Modifier.width(132.dp).clickable { onClick(anime.id) }) {
                 Box(Modifier.fillMaxWidth().height(184.dp).clip(RoundedCornerShape(14.dp)).background(Panel)) {
                     AsyncImage(posterPreviewOf(anime.id, anime.image), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.BottomEnd).padding(6.dp))
                     anime.score?.takeIf { it != "0.0" }?.let {
                         RatingBadge("★ $it", Color(0xFFFFD66B), Modifier.align(Alignment.TopEnd))
                     }

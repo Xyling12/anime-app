@@ -1,3 +1,5 @@
-import { ChatClient } from "./ChatClient";
-export const metadata = { title: "Чат — AniPulse" };
-export default function ChatPage() { return <ChatClient />; }
+import { redirect } from "next/navigation";
+
+export default function ChatPage() {
+  redirect("/");
+}

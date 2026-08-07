@@ -43,8 +43,6 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!canPost) return Result.success()
 
-        runCatching { checkServerNotifications(ctx, settings, prefs) }
-        runCatching { checkChatAll(ctx, settings, prefs) }
         runCatching { checkNewEpisodes(ctx, settings, prefs) }
         return Result.success()
     }
@@ -162,16 +160,12 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .build()
             val pulseSound = android.net.Uri.parse("android.resource://${ctx.packageName}/${com.anipulse.app.R.raw.anipulse_pulse}")
             listOf(
-                NotificationChannel("dm_pulse", "Личные сообщения", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("mentions_pulse", "@Упоминания", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("social_pulse", "Друзья", NotificationManager.IMPORTANCE_DEFAULT),
                 NotificationChannel("episodes_pulse", "Новые серии", NotificationManager.IMPORTANCE_DEFAULT),
-                // «Все» — намеренно тихий канал (много сообщений), звук явно выключен.
-                NotificationChannel("chat", "Общий чат (режим «Все»)", NotificationManager.IMPORTANCE_LOW),
             ).forEach { ch ->
-                if (ch.id == "chat") ch.setSound(null, null) else ch.setSound(pulseSound, soundAttrs)
+                ch.setSound(pulseSound, soundAttrs)
                 nm.createNotificationChannel(ch)
             }
+            listOf("dm_pulse", "mentions_pulse", "social_pulse", "chat").forEach(nm::deleteNotificationChannel)
         }
     }
 }

@@ -1,38 +1,23 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { userCard, friendAction, type UserCard } from "@/lib/social";
-import { useMe } from "@/lib/useMe";
+import { userCard, type UserCard } from "@/lib/social";
 import { Avatar } from "@/components/Avatar";
 
 export default function UserPage({ params }: { params: Promise<{ nick: string }> }) {
   const { nick: raw } = use(params);
   const nick = decodeURIComponent(raw);
-  const router = useRouter();
-  const { me } = useMe();
   const [card, setCard] = useState<UserCard | null>(null);
-  const [friendState, setFriendState] = useState<string>("");
 
   useEffect(() => {
     userCard(nick)
       .then((c) => {
         setCard(c);
-        setFriendState(c.friendState || "none");
       })
       .catch(() => setCard(null));
   }, [nick]);
 
-  async function friendBtn() {
-    const action = friendState === "friends" ? "remove" : friendState === "incoming" ? "accept" : "add";
-    const r = await friendAction(action, nick).catch(() => null);
-    if (r?.state) setFriendState(r.state);
-  }
-
   if (!card) return <p className="p-10 text-center text-text-muted">Загрузка…</p>;
-
-  const friendLabel =
-    friendState === "friends" ? "В друзьях ✓" : friendState === "incoming" ? "Принять заявку" : friendState === "outgoing" ? "Заявка отправлена" : "В друзья";
 
   return (
     <div className="page-shell"><div className="panel mx-auto max-w-3xl p-7 text-center md:p-10">
@@ -68,19 +53,6 @@ export default function UserPage({ params }: { params: Promise<{ nick: string }>
         </div>
       )}
 
-      {me && me.nick !== card.nick && (
-        <div className="mt-6 flex gap-2">
-          <button
-            onClick={() => router.push(`/dm/${encodeURIComponent(card.nick)}`)}
-            className="pulse-gradient flex-1 rounded-full py-2.5 font-bold text-white"
-          >
-            Написать
-          </button>
-          <button onClick={friendBtn} className="flex-1 rounded-full border border-border py-2.5 font-bold">
-            {friendLabel}
-          </button>
-        </div>
-      )}
     </div></div>
   );
 }

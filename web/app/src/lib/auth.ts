@@ -9,8 +9,8 @@ export interface AuthResponse {
   error?: string;
 }
 
-export function register(nick: string, email: string, password: string) {
-  return api.post<AuthResponse>("auth/register", { nick, email, password });
+export function register(nick: string, email: string, password: string, acceptTerms: boolean, privacyConsent: boolean) {
+  return api.post<AuthResponse>("auth/register", { nick, email, password, acceptTerms, privacyConsent });
 }
 export function login(loginId: string, password: string) {
   return api.post<AuthResponse>("auth/login", { login: loginId, password });

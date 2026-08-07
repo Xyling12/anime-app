@@ -153,62 +153,28 @@ test('guest never receives exact presence', async () => {
   assert.equal(card.json.lastSeen, null);
 });
 
-test('friends see only an online boolean, never exact lastSeen', async () => {
-  const add = await api('/alapi/friends/add', {
-    method: 'POST', token: tokens.Alice, body: { nick: 'Bob' },
-  });
-  assert.equal(add.status, 200);
-  const accept = await api('/alapi/friends/accept', {
-    method: 'POST', token: tokens.Bob, body: { nick: 'Alice' },
-  });
-  assert.equal(accept.status, 200);
-  const card = await api('/alapi/user?nick=Bob', { token: tokens.Alice });
-  assert.equal(card.status, 200);
-  assert.equal(card.json.online, true);
-  assert.equal(card.json.lastSeen, null);
-  const dms = await api('/alapi/dm/list', { token: tokens.Alice });
-  assert.equal(dms.json[0].withOnline, true);
+test('chat, direct messages and friends are permanently disabled', async () => {
+  const calls = [
+    ['/alapi/chat', { token: tokens.Alice }],
+    ['/alapi/chat', { method: 'POST', token: tokens.Alice, body: { text: 'hello' } }],
+    ['/alapi/dm/list', { token: tokens.Alice }],
+    ['/alapi/dm', { method: 'POST', token: tokens.Alice, body: { to: 'Bob', text: 'hello' } }],
+    ['/alapi/friends', { token: tokens.Alice }],
+    ['/alapi/friends/add', { method: 'POST', token: tokens.Alice, body: { nick: 'Bob' } }],
+  ];
+  for (const [route, options] of calls) {
+    const response = await api(route, options);
+    assert.equal(response.status, 410, route);
+    assert.equal(response.json.code, 'SOCIAL_FEATURE_REMOVED', route);
+  }
 });
 
-test('blocking removes relationships and interaction notifications', async () => {
+test('blocking still hides comments and profiles symmetrically', async () => {
   const blocked = await api('/alapi/blocks', {
     method: 'POST', token: tokens.Alice, body: { nick: 'Bob', action: 'block' },
   });
   assert.deepEqual({ status: blocked.status, blocked: blocked.json.blocked }, { status: 200, blocked: true });
 
-  for (const nick of ['Alice', 'Bob']) {
-    const friends = await api('/alapi/friends', { token: tokens[nick] });
-    assert.equal(friends.json.friends.length, 0);
-    assert.equal(friends.json.incoming.length, 0);
-    const notifications = await api('/alapi/notifications', { token: tokens[nick] });
-    assert.equal(notifications.json.length, 0);
-  }
-});
-
-test('a bilateral block prevents friendship and DMs from both sides', async () => {
-  for (const [from, to] of [['Alice', 'Bob'], ['Bob', 'Alice']]) {
-    const friend = await api('/alapi/friends/add', {
-      method: 'POST', token: tokens[from], body: { nick: to },
-    });
-    assert.equal(friend.status, 403);
-    const dm = await api('/alapi/dm', {
-      method: 'POST', token: tokens[from], body: { to, text: 'must be blocked' },
-    });
-    assert.equal(dm.status, 403);
-    const thread = await api(`/alapi/dm?with=${to}`, { token: tokens[from] });
-    assert.equal(thread.status, 403);
-  }
-});
-
-test('blocked users are hidden symmetrically from chat, comments, and profiles', async () => {
-  const aliceChat = await api('/alapi/chat', { token: tokens.Alice });
-  assert.equal(aliceChat.json.some(m => m.nick === 'Bob'), false);
-  const nestedReply = aliceChat.json.find(m => m.id === 3).replyTo;
-  assert.equal(nestedReply.text, 'Сообщение скрыто');
-  assert.equal(nestedReply.nick, 'Скрыто');
-
-  const bobChat = await api('/alapi/chat', { token: tokens.Bob });
-  assert.equal(bobChat.json.some(m => m.nick === 'Alice'), false);
   const aliceComments = await api('/alapi/comments?animeId=42', { token: tokens.Alice });
   const bobComments = await api('/alapi/comments?animeId=42', { token: tokens.Bob });
   assert.equal(aliceComments.json.some(c => c.nick === 'Bob'), false);
@@ -222,44 +188,19 @@ test('blocked users are hidden symmetrically from chat, comments, and profiles',
   assert.equal(seenByBob.json.blockedByTarget, true);
   assert.equal(seenByBob.json.bio, '');
   assert.equal(seenByBob.json.lastSeen, null);
-});
 
-test('unblock restores interaction but never restores friendship automatically', async () => {
   const unblocked = await api('/alapi/blocks', {
     method: 'POST', token: tokens.Alice, body: { nick: 'Bob', action: 'unblock' },
   });
   assert.deepEqual({ status: unblocked.status, blocked: unblocked.json.blocked }, { status: 200, blocked: false });
-  const friends = await api('/alapi/friends', { token: tokens.Alice });
-  assert.equal(friends.json.friends.length, 0);
-  const add = await api('/alapi/friends/add', {
-    method: 'POST', token: tokens.Bob, body: { nick: 'Alice' },
-  });
-  assert.equal(add.status, 200);
-  const dms = await api('/alapi/dm/list', { token: tokens.Alice });
-  assert.equal(dms.json[0].withOnline, false);
 });
 
 test('a ban blocks publishing but preserves safety and cleanup actions', async () => {
-  const cannotContactBanned = [
-    ['/alapi/dm', { to: 'Banned', text: 'must not be delivered' }],
-    ['/alapi/friends/add', { nick: 'Banned' }],
-  ];
-  for (const [route, body] of cannotContactBanned) {
-    const response = await api(route, { method: 'POST', token: tokens.Alice, body });
-    assert.equal(response.status, 403, route);
-  }
-  const mention = await api('/alapi/chat', {
-    method: 'POST', token: tokens.Alice, body: { text: '@Banned must not notify' },
-  });
-  assert.equal(mention.status, 200);
-  const bannedNotifications = await api('/alapi/notifications', { token: tokens.Banned });
-  assert.equal(bannedNotifications.json.length, 0);
-
   const forbidden = [
     ['/alapi/profile', { bio: 'new public bio' }],
     ['/alapi/rating', { animeId: '42', score: 10 }],
     ['/alapi/avatar-upload', { image: 'invalid' }],
-    ['/alapi/friends/add', { nick: 'Alice' }],
+    ['/alapi/comments', { animeId: '42', text: 'new comment' }],
   ];
   for (const [route, body] of forbidden) {
     const response = await api(route, { method: 'POST', token: tokens.Banned, body });
@@ -277,7 +218,7 @@ test('a ban blocks publishing but preserves safety and cleanup actions', async (
   const report = await api('/alapi/reports', {
     method: 'POST',
     token: tokens.Banned,
-    body: { type: 'chat', targetId: '1', reason: 'safety report while banned' },
+    body: { type: 'comment', targetId: '11', animeId: '42', reason: 'safety report while banned' },
   });
   assert.equal(report.status, 200);
   const avatar = await api('/alapi/avatar-img?nick=Banned');
