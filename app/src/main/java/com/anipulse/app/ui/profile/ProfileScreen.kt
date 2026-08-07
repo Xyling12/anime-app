@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -589,6 +590,14 @@ private fun ProfileRedesign(
             }
         }
 
+        if (state.admin) {
+            AdminAnalyticsCard(
+                value = state.analytics,
+                loading = state.analyticsBusy,
+                onRefresh = viewModel::refreshAnalytics,
+            )
+        }
+
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Settings, "Настройки плеера", onClick = { playerExpanded = !playerExpanded })
             if (playerExpanded) {
@@ -819,6 +828,53 @@ private fun openOAuth(
         com.anipulse.app.data.Api.GATEWAY + "auth/$provider" + if (state.isNotEmpty()) "?state=" + android.net.Uri.encode(state) else ""
     )
     ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+}
+
+@Composable
+private fun AdminAnalyticsCard(
+    value: com.anipulse.app.data.AdminAnalytics?,
+    loading: Boolean,
+    onRefresh: () -> Unit,
+) {
+    Surface(color = Color(0xFF15151F), shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.BarChart, null, tint = Color(0xFFFF4D8D))
+                Text("Статистика AniPulse", Modifier.padding(start = 9.dp).weight(1f), fontWeight = FontWeight.Bold)
+                TextButton(onClick = onRefresh, enabled = !loading) { Text("Обновить") }
+            }
+            if (loading && value == null) {
+                Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (value != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    AdminMetric("${value.online}", "Онлайн")
+                    AdminMetric("${value.today.active}", "Сегодня")
+                    AdminMetric("${value.last7Days.active}", "7 дней")
+                    AdminMetric("${value.last30Days.active}", "30 дней")
+                }
+                Text(
+                    "Первые запуски: ${value.totalInstalls} · Скачивания APK: ${value.totalDownloads} · Аккаунты: ${value.registeredUsers}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "За неделю: ${value.last7Days.averageSessionMinutes} мин. в среднем · приложение ${value.last7Days.android} · сайт ${value.last7Days.web}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("Статистика временно недоступна", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminMetric(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontWeight = FontWeight.Bold, color = Color(0xFFFF4D8D))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable

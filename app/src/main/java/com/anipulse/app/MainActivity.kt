@@ -33,6 +33,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var syncRepository: com.anipulse.app.data.SyncRepository
 
     private val scope = MainScope()
+    private var analyticsJob: Job? = null
     /** После обмена одноразового App Link-кода токен дополнительно проверяется через /auth/me
      * и сохраняется только после явного подтверждения пользователя. */
     private var pendingLogin by mutableStateOf<Pair<String, String>?>(null) // token to nick
@@ -50,11 +53,36 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         com.anipulse.app.ui.common.AppVisibility.foreground.value = true
+        analyticsJob?.cancel()
+        analyticsJob = scope.launch {
+            sendAnalytics("start")
+            while (isActive) {
+                delay(60_000)
+                sendAnalytics("heartbeat")
+            }
+        }
     }
 
     override fun onStop() {
         com.anipulse.app.ui.common.AppVisibility.foreground.value = false
+        analyticsJob?.cancel()
+        analyticsJob = null
+        scope.launch { sendAnalytics("stop") }
         super.onStop()
+    }
+
+    private suspend fun sendAnalytics(event: String) {
+        val bearer = settings.authToken?.let { "Bearer $it" }
+        runCatching {
+            gateway.analyticsHeartbeat(
+                bearer,
+                com.anipulse.app.data.AnalyticsHeartbeatRequest(
+                    installId = settings.analyticsInstallId,
+                    version = BuildConfig.VERSION_NAME,
+                    event = event,
+                ),
+            )
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

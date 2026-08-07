@@ -30,12 +30,12 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Person
@@ -95,8 +95,8 @@ private val pushPopExit = fadeOut(tween(300, easing = FastOutSlowInEasing)) + sc
 /** Нижняя навигация (редизайн 07-16): только основные разделы контента, максимум 5. */
 private val tabs = listOf(
     Tab("home", "Главная", Icons.Rounded.Home, Icons.Outlined.Home),
-    Tab("catalog", "Каталог", Icons.Rounded.Explore, Icons.Outlined.Explore),
-    Tab("schedule", "Эфир", Icons.Rounded.CalendarToday, Icons.Outlined.CalendarToday),
+    Tab("catalog", "Поиск", Icons.Rounded.Search, Icons.Outlined.Search),
+    Tab("schedule", "Расписание", Icons.Rounded.CalendarToday, Icons.Outlined.CalendarToday),
     Tab("library", "Моё", Icons.Rounded.VideoLibrary, Icons.Outlined.VideoLibrary),
     Tab("profile", "Профиль", Icons.Rounded.Person, Icons.Outlined.PersonOutline),
 )

@@ -84,6 +84,14 @@ class SettingsStore @Inject constructor(
         get() = prefs.getBoolean("auth_admin", false)
         set(v) = prefs.edit().putBoolean("auth_admin", v).apply()
 
+    val analyticsInstallId: String
+        get() {
+            prefs.getString("analytics_install_id", null)?.let { return it }
+            val generated = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("analytics_install_id", generated).apply()
+            return generated
+        }
+
     /**
      * Режим уведомлений чата: "all" — все сообщения, "mentions" — только @упоминания (дефолт),
      * "off" — тишина. Использует будущий воркер пушей.

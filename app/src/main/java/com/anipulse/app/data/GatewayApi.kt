@@ -39,6 +39,40 @@ data class OAuthCodeRequest(val code: String)
 data class OAuthLinkResponse(val code: String? = null, val error: String? = null)
 
 @Serializable
+data class AnalyticsHeartbeatRequest(
+    val installId: String,
+    val platform: String = "android",
+    val version: String,
+    val event: String,
+)
+
+@Serializable
+data class AnalyticsPeriod(
+    val active: Int = 0,
+    val android: Int = 0,
+    val web: Int = 0,
+    val firstOpens: Int = 0,
+    val downloads: Int = 0,
+    val sessionMinutes: Long = 0,
+    val averageSessionMinutes: Long = 0,
+)
+
+@Serializable
+data class AdminAnalytics(
+    val generatedAt: Long = 0,
+    val online: Int = 0,
+    val onlineAndroid: Int = 0,
+    val onlineWeb: Int = 0,
+    val today: AnalyticsPeriod = AnalyticsPeriod(),
+    val last7Days: AnalyticsPeriod = AnalyticsPeriod(),
+    val last30Days: AnalyticsPeriod = AnalyticsPeriod(),
+    val totalInstalls: Int = 0,
+    val totalDownloads: Int = 0,
+    val registeredUsers: Int = 0,
+    val versions: Map<String, Int> = emptyMap(),
+)
+
+@Serializable
 data class AuthResponse(
     val token: String? = null,
     val nick: String? = null,
@@ -528,6 +562,17 @@ interface GatewayApi {
         @retrofit2.http.Header("Authorization") bearer: String,
         @retrofit2.http.Body body: DeleteAccountRequest = DeleteAccountRequest(),
     ): kotlinx.serialization.json.JsonObject
+
+    @retrofit2.http.POST("analytics/heartbeat")
+    suspend fun analyticsHeartbeat(
+        @retrofit2.http.Header("Authorization") bearer: String?,
+        @retrofit2.http.Body body: AnalyticsHeartbeatRequest,
+    ): kotlinx.serialization.json.JsonObject
+
+    @GET("admin/analytics")
+    suspend fun adminAnalytics(
+        @retrofit2.http.Header("Authorization") bearer: String,
+    ): AdminAnalytics
 
     @GET("admin/reports")
     suspend fun adminReports(

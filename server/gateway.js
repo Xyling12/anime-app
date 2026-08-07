@@ -4,6 +4,7 @@ const https = require('https');
 const fs = require('fs');
 const pathModule = require('path');
 const { URL } = require('url');
+const analyticsStore = require('./analytics-store');
 const {
   ByteLruCache,
   assertSafeHttpsUrl,
@@ -321,10 +322,15 @@ function handleAppVersion(res) {
   try { return jsonRes(res, 200, JSON.parse(fs.readFileSync(dataPath('app-version.json'), 'utf8'))); }
   catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
 }
-function handleApkDownload(res) {
+function handleApkDownload(req, res) {
   const apkPath = dataPath('AniPulse-latest.apk');
   fs.stat(apkPath, (error, stat) => {
     if (error || !stat.isFile()) { res.writeHead(404); return res.end('no apk'); }
+    if (req.headers['x-anipulse-monitor'] !== '1') {
+      try { analyticsStore.recordDownload(dataPath('analytics.json')); } catch (analyticsError) {
+        console.error('analytics download write failed:', analyticsError.code || analyticsError.message);
+      }
+    }
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
       'Content-Disposition': 'attachment; filename="AniPulse.apk"',
@@ -468,6 +474,56 @@ function bugReportTo() {
   try { return JSON.parse(fs.readFileSync(BUGREPORT_FILE, 'utf8')).to; } catch (e) {}
   try { return JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8')).user; } catch (e) { return null; }
 }
+
+const ANALYTICS_FILE = dataPath('analytics.json');
+
+async function handleAnalyticsHeartbeat(req, res) {
+  if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
+  if (tooMany(ipHits, 'analytics:' + clientIp(req), 180, 60 * 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
+  const body = await readBody(req, 4096);
+  const user = authUserEarly(req);
+  const result = analyticsStore.recordHeartbeat(ANALYTICS_FILE, body, user && user.id);
+  if (!result) return jsonRes(res, 400, { error: 'invalid install id' });
+  return jsonRes(res, 200, result);
+}
+
+function analyticsEmailText(value) {
+  const line = (title, period) =>
+    `${title}: ${period.active} активных (${period.android} приложение, ${period.web} сайт), ` +
+    `${period.firstOpens} первых запусков, ${period.downloads} скачиваний, ` +
+    `${period.averageSessionMinutes} мин. на пользователя`;
+  return [
+    'Еженедельная статистика AniPulse', '',
+    `Онлайн сейчас: ${value.online}`,
+    line('Сегодня', value.today),
+    line('За 7 дней', value.last7Days),
+    line('За 30 дней', value.last30Days), '',
+    `Всего зафиксировано установок: ${value.totalInstalls}`,
+    `Всего скачиваний APK с сайта: ${value.totalDownloads}`, '',
+    'Статистика RuStore учитывается отдельно в кабинете RuStore.',
+  ].join('\n');
+}
+
+function maybeSendWeeklyAnalytics() {
+  const now = new Date();
+  if (now.getUTCDay() !== 1 || now.getUTCHours() < 6) return;
+  let recipient;
+  try {
+    const smtp = JSON.parse(fs.readFileSync(SMTP_FILE, 'utf8'));
+    recipient = smtp.analyticsTo || smtp.user;
+  } catch (_) { return; }
+  if (!recipient) return;
+  try {
+    if (!analyticsStore.claimWeeklyReport(ANALYTICS_FILE, now.getTime())) return;
+    sendMail(recipient, 'Еженедельная статистика AniPulse', analyticsEmailText(analyticsStore.summary(ANALYTICS_FILE, now.getTime())));
+  } catch (error) {
+    console.error('weekly analytics failed:', error.code || error.message);
+  }
+}
+
+setTimeout(maybeSendWeeklyAnalytics, 30_000).unref();
+setInterval(maybeSendWeeklyAnalytics, 60 * 60 * 1000).unref();
+
 async function handleBugReport(req, res) {
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
   if (tooMany(ipHits, 'bug:' + clientIp(req), 3, 60 * 60 * 1000)) return jsonRes(res, 429, { error: 'Слишком много репортов, попробуйте позже' });
@@ -837,6 +893,7 @@ function deleteAccountData(user) {
   const sync = loadJson(SYNC_FILE, { users: {} });
   if (sync.users) delete sync.users[user.id];
   saveJson(SYNC_FILE, sync);
+  analyticsStore.anonymizeUser(ANALYTICS_FILE, user.id);
 
   const reports = loadReports();
   for (const r of reports.items) {
@@ -1334,6 +1391,11 @@ function banReportedUser(report, bannedUntil) {
 async function handleAdmin(req, res) {
   const user = authUser(req);
   if (!user || !user.admin) return jsonRes(res, 403, { error: 'Только для администратора' });
+  if (req.method === 'GET' && req.url.startsWith('/alapi/admin/analytics')) {
+    const result = analyticsStore.summary(ANALYTICS_FILE);
+    result.registeredUsers = loadUsers().users.length;
+    return jsonRes(res, 200, result);
+  }
   if (req.method === 'GET' && req.url.startsWith('/alapi/admin/reports')) {
     const all = loadReports();
     const status = new URL('http://x' + req.url).searchParams.get('status') || 'open';
@@ -2004,7 +2066,7 @@ async function handleOAuthVk(req, res, isCallback) {
 
 // ===== Публичные юридические страницы =====
 const LEGAL_CONTACT = 'anipulse.noreply@yandex.ru';
-const LEGAL_UPDATED = '22 июля 2026';
+const LEGAL_UPDATED = '7 августа 2026';
 const LEGAL_FILE = dataPath('legal.json');
 function legalCfg() {
   return loadJson(LEGAL_FILE, {
@@ -2045,12 +2107,14 @@ function handlePrivacyPage(res) {
 <p>Для вошедших пользователей список «Моё», статусы тайтлов и прогресс серий (номер серии, позиция, длительность и время обновления) синхронизируются с сервером, чтобы продолжать просмотр на сайте и других устройствах. Эти данные доступны только владельцу аккаунта, хранятся до их удаления или удаления аккаунта и не передаются поставщикам каталога или видео. Токен входа и настройки приложения хранятся отдельно в зашифрованном хранилище Android.</p>
 <p>Контент, который вы создаёте сами: сообщения в чате и личных сообщениях, комментарии, оценки тайтлов, заявки в друзья — хранится на нашем сервере, чтобы работать для всех пользователей.</p>
 <p>Автоматически: IP-адрес (только для защиты от злоупотреблений — ограничение частоты запросов, не хранится долговременно), при добровольной отправке баг-репорта — модель устройства и версия Android.</p>
+<p>Для обезличенной статистики использования создаётся случайный идентификатор установки. Мы учитываем первый запуск, версию приложения, активность приложения или сайта, примерную длительность активной сессии и факт скачивания APK с нашего сайта. Идентификатор не является рекламным идентификатором или отпечатком устройства; постоянный сбор в фоне не выполняется, IP-адрес в статистике не сохраняется.</p>
 <h2>Как мы используем данные</h2>
 <ul>
 <li>Вход и работа аккаунта, восстановление пароля, подтверждение почты</li>
 <li>Работа социальных функций (чат, ЛС, друзья, комментарии, рейтинги)</li>
 <li>Защита от спама и злоупотреблений (ограничения частоты, бан за нарушение правил)</li>
 <li>Уведомления о новых сериях, сообщениях и упоминаниях</li>
+<li>Обезличенная оценка числа активных пользователей, качества обновлений и стабильности сервиса</li>
 </ul>
 <h2>Кому мы передаём данные</h2>
 <p>Никому не продаём и не передаём третьим лицам для рекламы. Для работы приложения используются:</p>
@@ -2174,6 +2238,7 @@ async function route(req, res) {
   const kodikM = req.url.match(/^\/alapi\/kodik\?link=([^&]+)(?:&episode=(\d+))?/);
   if (kodikM) return handleKodik(decodeURIComponent(kodikM[1]), kodikM[2], res);
   if (req.url.startsWith('/alapi/bugreport')) return handleBugReport(req, res);
+  if (req.url.startsWith('/alapi/analytics/heartbeat')) return handleAnalyticsHeartbeat(req, res);
   if (req.url.startsWith('/alapi/admin/')) return handleAdmin(req, res);
   if (req.url.startsWith('/alapi/blocks') || req.url.startsWith('/alapi/reports')) return handleModeration(req, res);
   if (req.url.startsWith('/alapi/user')) return handleUserCard(req, res);
@@ -2195,7 +2260,7 @@ async function route(req, res) {
   const authM = req.url.match(/^\/alapi\/auth\/([a-z-]+)/);
   if (authM) return handleAuth(req, res, authM[1]);
   if (req.url.startsWith('/alapi/app-version')) return handleAppVersion(res);
-  if (req.url.startsWith('/alapi/apk')) return handleApkDownload(res);
+  if (req.url.startsWith('/alapi/apk')) return handleApkDownload(req, res);
   if (req.url.startsWith('/alapi/anilibria-updates')) return handleAnilibriaUpdates(res);
   const poster = req.url.match(/^\/alapi\/poster\/(\d+)/);
   if (poster) return handlePoster(poster[1], res);

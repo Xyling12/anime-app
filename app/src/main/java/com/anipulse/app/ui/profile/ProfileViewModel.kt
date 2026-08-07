@@ -46,6 +46,9 @@ data class ProfileState(
     /** false — почта не подтверждена, показываем плашку с кодом. */
     val emailVerified: Boolean = true,
     val verifyMessage: String? = null,
+    val admin: Boolean = false,
+    val analytics: com.anipulse.app.data.AdminAnalytics? = null,
+    val analyticsBusy: Boolean = false,
 )
 
 @HiltViewModel
@@ -65,6 +68,7 @@ class ProfileViewModel @Inject constructor(
             nick = settings.authNick,
             email = settings.authEmail,
             avatarId = settings.avatarId,
+            admin = settings.authAdmin,
         )
     )
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -76,6 +80,7 @@ class ProfileViewModel @Inject constructor(
             syncStatsToServer()
         }
         refreshMe()
+        if (settings.authAdmin) refreshAnalytics()
     }
 
     /**
@@ -99,8 +104,10 @@ class ProfileViewModel @Inject constructor(
                             linked = me.linked,
                             avatarId = me.avatar,
                             avatarRev = me.avatarRev,
+                            admin = me.admin,
                         )
                     }
+                    if (me.admin) refreshAnalytics()
                 } else {
                     logout() // токен протух
                 }
@@ -166,8 +173,10 @@ class ProfileViewModel @Inject constructor(
                             emailVerified = me.emailVerified,
                             authBusy = false,
                             authError = null,
+                            admin = me.admin,
                         )
                     }
+                    if (me.admin) refreshAnalytics()
                 }
             } else {
                 _state.update { it.copy(authBusy = false, authError = resp.error ?: "Ошибка") }
@@ -177,7 +186,18 @@ class ProfileViewModel @Inject constructor(
 
     fun logout() {
         settings.authToken = null; settings.authNick = null; settings.authEmail = null; settings.authAdmin = false
-        _state.update { it.copy(userId = 0, nick = null, email = null, linked = emptyList(), avatarRev = 0) }
+        _state.update { it.copy(userId = 0, nick = null, email = null, linked = emptyList(), avatarRev = 0, admin = false, analytics = null) }
+    }
+
+    fun refreshAnalytics() {
+        val token = settings.authToken ?: return
+        if (!settings.authAdmin) return
+        _state.update { it.copy(analyticsBusy = true) }
+        viewModelScope.launch {
+            runCatching { gateway.adminAnalytics("Bearer $token") }
+                .onSuccess { value -> _state.update { it.copy(analytics = value, analyticsBusy = false) } }
+                .onFailure { _state.update { it.copy(analyticsBusy = false) } }
+        }
     }
 
     fun deleteAccount() {
