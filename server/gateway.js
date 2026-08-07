@@ -494,7 +494,7 @@ function analyticsEmailText(value) {
     `${period.averageSessionMinutes} мин. на пользователя`;
   return [
     'Еженедельная статистика AniPulse', '',
-    `Онлайн сейчас: ${value.online}`,
+    `Онлайн сейчас: ${value.online} (приложение ${value.onlineAndroid}, сайт ${value.onlineWeb})`,
     line('Сегодня', value.today),
     line('За 7 дней', value.last7Days),
     line('За 30 дней', value.last30Days), '',

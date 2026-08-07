@@ -23,6 +23,8 @@ test('analytics counts downloads, first opens, active users, online and session 
   assert.equal(value.today.android, 1);
   assert.equal(value.today.web, 1);
   assert.equal(value.online, 2);
+  assert.equal(value.onlineAndroid, 1);
+  assert.equal(value.onlineWeb, 1);
   assert.equal(value.today.sessionMinutes, 1);
   fs.rmSync(directory, { recursive: true, force: true });
 });

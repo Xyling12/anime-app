@@ -853,6 +853,11 @@ private fun AdminAnalyticsCard(
                     AdminMetric("${value.last30Days.active}", "30 дней")
                 }
                 Text(
+                    "Онлайн сейчас: приложение ${value.onlineAndroid} · сайт ${value.onlineWeb}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
                     "Первые запуски: ${value.totalInstalls} · Скачивания APK: ${value.totalDownloads} · Аккаунты: ${value.registeredUsers}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
