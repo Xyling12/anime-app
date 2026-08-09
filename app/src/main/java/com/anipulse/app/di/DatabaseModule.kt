@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.anipulse.app.data.db.AppDatabase
+import com.anipulse.app.data.db.ContinueHiddenDao
 import com.anipulse.app.data.db.FavoriteDao
 import com.anipulse.app.data.db.ProgressDao
 import dagger.Module
@@ -42,11 +43,26 @@ object DatabaseModule {
         }
     }
 
+    // v3→v4: «скрыть из подбора» для ленты «Продолжить просмотр».
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `continue_hidden` (
+                    `animeId` INTEGER NOT NULL,
+                    `hiddenAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`animeId`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun database(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "anipulse.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -54,4 +70,7 @@ object DatabaseModule {
 
     @Provides
     fun favoriteDao(db: AppDatabase): FavoriteDao = db.favoriteDao()
+
+    @Provides
+    fun continueHiddenDao(db: AppDatabase): ContinueHiddenDao = db.continueHiddenDao()
 }

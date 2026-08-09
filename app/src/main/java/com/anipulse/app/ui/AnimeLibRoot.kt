@@ -197,13 +197,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                         tabs.forEach { tab ->
                             val selected = tab.route == currentTab.route
                             Column(
-                                Modifier.weight(1f).fillMaxSize().clickable {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
+                                Modifier.weight(1f).fillMaxSize().clickable { navController.switchTab(tab.route) },
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center,
                             ) {
@@ -241,8 +235,14 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                                     onTitleClick = { id -> navController.navigate("title/$id") },
                                     onShowAll = { section ->
                                         if (section == com.anipulse.app.ui.home.HomeSection.CONTINUE) {
-                                            navController.navigate("library") { launchSingleTop = true }
-                                            navController.getBackStackEntry("library").savedStateHandle["initialFilter"] = "watching"
+                                            // «Моё» — вкладка нижней навигации, поэтому переход
+                                            // обязан идти через switchTab. Обычный navigate() клал
+                                            // library поверх home без saveState/restoreState, после
+                                            // чего тап по «Главная» уходил в несогласованный
+                                            // сохранённый стек и экран оставался на «Моё».
+                                            navController.switchTab("library")
+                                            navController.getBackStackEntry("library")
+                                                .savedStateHandle["initialFilter"] = "watching"
                                         } else {
                                             navController.navigate("home_all/${section.route}")
                                         }
@@ -338,5 +338,21 @@ private fun BadgedIconButton(
                     .background(Color(0xFFFF4D8D)),
             )
         }
+    }
+}
+
+/**
+ * Переход на вкладку нижней навигации.
+ *
+ * Единая точка намеренно: у Compose Navigation `saveState`/`restoreState` ведут общий учёт
+ * сохранённых стеков по вкладкам, и если часть переходов на ту же вкладку идёт обычным
+ * `navigate()` без этих флагов, учёт расходится — следующий тап по вкладке может не сменить
+ * экран. Поэтому любой переход на `home/catalog/schedule/library/profile` идёт только сюда.
+ */
+private fun androidx.navigation.NavController.switchTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.startDestinationId) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }

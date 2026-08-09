@@ -36,8 +36,23 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
             .crossfade(false) // без анимации появления — по фидбеку владельца
             .build()
 
+    /**
+     * Через `dagger.Lazy`, а не напрямую: обычное field-инжектирование построило бы
+     * SettingsStore прямо здесь, на главном потоке, — ровно то, чего мы избегаем.
+     */
+    @javax.inject.Inject lateinit var settingsStore: dagger.Lazy<com.anipulse.app.data.SettingsStore>
+
     override fun onCreate() {
         super.onCreate()
+        // Прогрев зашифрованных настроек в фоне.
+        //
+        // SettingsStore создаёт EncryptedSharedPreferences, а первый запуск — это генерация
+        // мастер-ключа в Android Keystore: сотни миллисекунд, иногда секунды. Читают его
+        // MainActivity и RootMenuViewModel (nick/avatar/theme прямо в инициализаторах полей),
+        // то есть на главном потоке до первого кадра — на холодном старте это давало ANR.
+        // Синглтон Hilt, поэтому построенный здесь экземпляр переиспользуется; если UI успеет
+        // попросить его раньше, он дождётся той же блокировки, но обычно ключ уже готов.
+        Thread({ runCatching { settingsStore.get() } }, "settings-warmup").start()
         NotifyWorker.ensureChannels(this)
         val notifyConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)

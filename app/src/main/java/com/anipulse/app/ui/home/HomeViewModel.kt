@@ -3,6 +3,8 @@ package com.anipulse.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.anipulse.app.data.AnimeRepository
+import com.anipulse.app.data.db.ContinueHidden
+import com.anipulse.app.data.db.ContinueHiddenDao
 import com.anipulse.app.data.db.EpisodeProgress
 import com.anipulse.app.data.db.ProgressDao
 import com.anipulse.app.data.shikimori.ShikiAnime
@@ -12,7 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,25 +33,44 @@ data class HomeState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val progressDao: ProgressDao,
+    private val continueHiddenDao: ContinueHiddenDao,
     private val repo: AnimeRepository,
     private val gateway: com.anipulse.app.data.GatewayApi,
     private val syncRepository: com.anipulse.app.data.SyncRepository,
 ) : ViewModel() {
 
-    /** Лента «Продолжить просмотр»: недосмотренные тайтлы, свежие сверху. */
+    /**
+     * Лента «Продолжить просмотр»: недосмотренные тайтлы, свежие сверху, без скрытых.
+     *
+     * Скрытие сравнивается по времени: тайтл прячется, только пока метка `hiddenAt` свежее
+     * последнего прогресса. Открыл серию заново — тайтл вернулся в ленту сам, без настроек.
+     * Сравнение идёт по исходному `updatedAt`, до подстановки следующей серии ниже.
+     */
     val continueWatching: StateFlow<List<EpisodeProgress>> =
-        progressDao.continueWatching()
-            .map { list ->
-                list.mapNotNull { item ->
-                    when {
-                        !item.watched && item.positionMs > 1000 -> item
-                        item.watched && (item.totalEpisodes == 0 || item.episode < item.totalEpisodes) ->
-                            item.copy(episode = item.episode + 1, positionMs = 0, watched = false)
-                        else -> null
-                    }
+        combine(progressDao.continueWatching(), continueHiddenDao.all()) { list, hidden ->
+            val hiddenAt = hidden.associate { it.animeId to it.hiddenAt }
+            list.mapNotNull { item ->
+                if (item.updatedAt <= (hiddenAt[item.animeId] ?: Long.MIN_VALUE)) return@mapNotNull null
+                when {
+                    !item.watched && item.positionMs > 1000 -> item
+                    item.watched && (item.totalEpisodes == 0 || item.episode < item.totalEpisodes) ->
+                        item.copy(episode = item.episode + 1, positionMs = 0, watched = false)
+                    else -> null
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** «Скрыть из подбора» на карточке ленты. */
+    fun hideFromContinue(animeId: Long) {
+        viewModelScope.launch {
+            continueHiddenDao.hide(ContinueHidden(animeId, System.currentTimeMillis()))
+        }
+    }
+
+    /** Отмена скрытия — кнопка «Вернуть» в снекбаре. */
+    fun unhideFromContinue(animeId: Long) {
+        viewModelScope.launch { continueHiddenDao.unhide(animeId) }
+    }
 
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()

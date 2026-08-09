@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import com.anipulse.app.data.Api
 import com.anipulse.app.ui.catalog.PosterCard
 import com.anipulse.app.ui.catalog.CatalogViewModel
+import com.anipulse.app.ui.common.topSafePadding
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
@@ -75,7 +76,9 @@ fun HomeAllScreen(
         HomeSection.TOP_RATED -> "Высший рейтинг"
         null -> "Подборка"
     }
-    Column(Modifier.fillMaxSize()) {
+    // Экран не вкладка, поэтому корневой Box в AnimeLibRoot не даёт ему отступ от системных
+    // панелей — заголовок налезал на часы статус-бара.
+    Column(Modifier.fillMaxSize().topSafePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -3,15 +3,15 @@ package com.anipulse.app.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
@@ -33,6 +33,7 @@ import com.anipulse.app.data.Api
 import com.anipulse.app.data.shikimori.ShikiAnime
 import com.anipulse.app.data.shikimori.posterPreviewOf
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val Pulse = Color(0xFFFF4D8D)
 private val Panel = Color(0xFF15151F)
@@ -57,20 +58,31 @@ fun HomeScreen(
 ) {
     val continueItems by viewModel.continueWatching.collectAsState()
     val state by viewModel.state.collectAsState()
+    // Свой SnackbarHost: скрытие должно быть отменяемым, иначе случайный долгий тап не откатить —
+    // карточка вернётся только после повторного открытия серии.
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
         modifier = Modifier.fillMaxSize(),
     ) {
-      Column(
-          Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp),
+      // LazyColumn, а не Column(verticalScroll): второй композит все секции разом, включая те,
+      // что ниже экрана — баннер на 8 страниц и три ленты целиком. По трейсу ANR главный поток
+      // сидел именно в первой композиции, поэтому нижние ленты откладываем до прокрутки.
+      //
+      // Состояние пейджера вынесено наружу: внутри item оно пересоздавалось бы при уходе
+      // баннера с экрана, и карусель прыгала бы на первую страницу после возврата.
+      val pager = rememberPagerState(pageCount = { state.banner.size })
+      LaunchedEffect(state.banner.size) {
+          if (state.banner.isEmpty()) return@LaunchedEffect
+          while (true) { delay(9000); pager.animateScrollToPage((pager.currentPage + 1) % state.banner.size) }
+      }
+      LazyColumn(
+          Modifier.fillMaxSize().padding(top = 8.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        if (state.banner.isNotEmpty()) {
-            val pager = rememberPagerState(pageCount = { state.banner.size })
-            LaunchedEffect(state.banner.size) {
-                while (true) { delay(9000); pager.animateScrollToPage((pager.currentPage + 1) % state.banner.size) }
-            }
+        if (state.banner.isNotEmpty()) item(key = "banner") {
             HorizontalPager(
                 state = pager,
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -122,11 +134,38 @@ fun HomeScreen(
             }
         }
 
-        if (continueItems.isNotEmpty()) {
+        if (continueItems.isNotEmpty()) item(key = "continue") {
             SectionTitle("Продолжить просмотр") { onShowAll(HomeSection.CONTINUE) }
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueItems, key = { it.animeId }) { item ->
-                    Column(Modifier.width(210.dp).clickable { onTitleClick(item.animeId) }) {
+                    // Долгий тап вместо кнопки на карточке: правый верхний угол занят возрастной
+                    // плашкой, а лишняя иконка на превью съедает и без того мелкий постер.
+                    var menuOpen by remember(item.animeId) { mutableStateOf(false) }
+                    Column(
+                        Modifier.width(210.dp).combinedClickable(
+                            onClick = { onTitleClick(item.animeId) },
+                            onLongClick = { menuOpen = true },
+                        )
+                    ) {
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Скрыть из подбора") },
+                                onClick = {
+                                    menuOpen = false
+                                    viewModel.hideFromContinue(item.animeId)
+                                    scope.launch {
+                                        val action = snackbar.showSnackbar(
+                                            message = "Скрыто из «Продолжить просмотр»",
+                                            actionLabel = "Вернуть",
+                                            withDismissAction = true,
+                                        )
+                                        if (action == SnackbarResult.ActionPerformed) {
+                                            viewModel.unhideFromContinue(item.animeId)
+                                        }
+                                    }
+                                },
+                            )
+                        }
                         Box(Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(14.dp)).background(Panel)) {
                             AsyncImage(Api.GATEWAY + "poster/${item.posterId}", null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                             com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
@@ -145,11 +184,18 @@ fun HomeScreen(
                 }
             }
         }
-        if (state.forYou.isNotEmpty()) AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.FOR_YOU) }
-        if (state.popular.isNotEmpty()) AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.POPULAR) }
-        if (state.topRated.isNotEmpty()) AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.TOP_RATED) }
-        Spacer(Modifier.height(24.dp))
+        if (state.forYou.isNotEmpty()) item(key = "forYou") {
+            AnimeRail("Для вас", state.forYou, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.FOR_YOU) }
+        }
+        if (state.popular.isNotEmpty()) item(key = "popular") {
+            AnimeRail("Популярное", state.popular, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.POPULAR) }
+        }
+        if (state.topRated.isNotEmpty()) item(key = "topRated") {
+            AnimeRail("Высший рейтинг", state.topRated, state.pulseRatings, onTitleClick) { onShowAll(HomeSection.TOP_RATED) }
+        }
+        item(key = "bottomSpacer") { Spacer(Modifier.height(24.dp)) }
       }
+      SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
     }
 }
 
