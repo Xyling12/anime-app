@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { kodikDubs } from "@/lib/video";
 import { getProgress } from "@/lib/progress";
 import { getFavorite, setFavorite, type WatchStatus } from "@/lib/favorites";
-import { api, auth } from "@/lib/api";
+import { api, auth, posterOriginal, shikimoriImage } from "@/lib/api";
+import { related } from "@/lib/catalog";
 import { Comments } from "@/components/Comments";
-import type { ShikiImage } from "@/lib/types";
+import type { ShikiImage, ShikiRelatedNode } from "@/lib/types";
 import { Icon } from "@/components/Icon";
+import { PosterImage } from "@/components/PosterImage";
 
 const STATUSES: { label: string; s: WatchStatus }[] = [
   { label: "Смотрю", s: "watching" },
@@ -16,7 +18,7 @@ const STATUSES: { label: string; s: WatchStatus }[] = [
   { label: "Просмотрено", s: "completed" },
 ];
 
-/** Клиентская часть тайтла: озвучки, серии, плеер, статус «Моё», оценка 1-10. */
+/** Клиентская часть тайтла: озвучки, серии, плеер, статус «Моё», оценка 1-10, порядок просмотра. */
 export function TitleClient({
   id,
   title,
@@ -35,24 +37,150 @@ export function TitleClient({
   const [status, setStatus] = useState<WatchStatus | "none">("none");
   const [myRating, setMyRating] = useState<number | null>(null);
   const [avgRating, setAvgRating] = useState<{ avg?: number; count: number } | null>(null);
+  const [ratingError, setRatingError] = useState<string | null>(null);
+  const [relatedList, setRelatedList] = useState<ShikiRelatedNode[]>([]);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const relatedScrollRef = useRef<HTMLDivElement>(null);
+  const currentRelatedRef = useRef<HTMLAnchorElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const scrollStartLeftRef = useRef(0);
+  const hasMovedRef = useRef(false);
+
+  const updateScrollButtons = () => {
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 6);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 6);
+  };
+
+  const scrollRelated = (direction: "left" | "right") => {
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    const delta = direction === "left" ? -340 : 340;
+    el.scrollBy({ left: delta, behavior: "smooth" });
+    setTimeout(updateScrollButtons, 250);
+  };
 
   useEffect(() => {
     kodikDubs(id)
       .then((d) => setDubs(d))
       .catch(() => setDubs([]))
       .finally(() => setLoading(false));
-    // Local storage is an external client-side store.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus(getFavorite(id)?.status ?? "none");
     // Рейтинг AniPulse (свой + средний)
+    const myEpoch = ++ratingEpochRef.current;
     api
       .get<{ avg?: number; count: number; my?: number }>(`rating?animeId=${id}`, !!auth.token)
       .then((r) => {
+        if (myEpoch !== ratingEpochRef.current) return;
         setAvgRating({ avg: r.avg, count: r.count });
         setMyRating(r.my ?? null);
       })
       .catch(() => {});
+    // Порядок просмотра (Shikimori /related)
+    related(id)
+      .then((nodes) => {
+        const items = nodes
+          .filter((n) => n.anime)
+          .map((n) => ({
+            node: n,
+            year: n.anime?.aired_on ? new Date(n.anime.aired_on).getFullYear() : 0,
+          }))
+          .sort((a, b) => a.year - b.year);
+        setRelatedList(items.map((i) => i.node));
+      })
+      .catch(() => setRelatedList([]));
   }, [id]);
+
+  // Horizontal mouse wheel scrolling for Порядок просмотра
+  useEffect(() => {
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0) {
+        const maxScroll = el.scrollWidth - el.clientWidth;
+        if (maxScroll > 0) {
+          if ((e.deltaY > 0 && el.scrollLeft < maxScroll - 1) || (e.deltaY < 0 && el.scrollLeft > 1)) {
+            e.preventDefault();
+            el.scrollLeft += e.deltaY;
+            updateScrollButtons();
+          }
+        }
+      }
+    };
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [relatedList]);
+
+  // Scroll and resize listener for buttons
+  useEffect(() => {
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    updateScrollButtons();
+    const handleScroll = () => updateScrollButtons();
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [relatedList]);
+
+  // Auto-scroll to current anime in franchise order
+  useEffect(() => {
+    if (relatedList.length > 0 && currentRelatedRef.current && relatedScrollRef.current) {
+      const timer = setTimeout(() => {
+        const container = relatedScrollRef.current;
+        const target = currentRelatedRef.current;
+        if (container && target) {
+          const targetLeft = target.offsetLeft;
+          const targetWidth = target.offsetWidth;
+          const containerWidth = container.clientWidth;
+          const scrollTo = targetLeft - containerWidth / 2 + targetWidth / 2;
+          container.scrollTo({ left: Math.max(0, scrollTo), behavior: "smooth" });
+          updateScrollButtons();
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [relatedList, id]);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    isDraggingRef.current = true;
+    hasMovedRef.current = false;
+    dragStartXRef.current = e.pageX - el.offsetLeft;
+    scrollStartLeftRef.current = el.scrollLeft;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    const el = relatedScrollRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - dragStartXRef.current) * 1.3;
+    if (Math.abs(x - dragStartXRef.current) > 5) {
+      hasMovedRef.current = true;
+    }
+    el.scrollLeft = scrollStartLeftRef.current - walk;
+    updateScrollButtons();
+  };
+
+  const handleMouseUp = () => {
+    isDraggingRef.current = false;
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (hasMovedRef.current) {
+      e.preventDefault();
+      hasMovedRef.current = false;
+    }
+  };
 
   function toggleStatus(s: WatchStatus) {
     const next = status === s ? "none" : s;
@@ -62,14 +190,25 @@ export function TitleClient({
 
   function rate(score: number) {
     if (!auth.token) return;
-    setMyRating(score);
+    const prev = myRating;
+    const isToggle = prev === score;
+    setMyRating(isToggle ? null : score);
+    setRatingError(null);
+    ratingEpochRef.current++;
     api
       .post<{ avg?: number; count: number; my?: number }>("rating", { animeId: id, score }, true)
-      .then((r) => setAvgRating({ avg: r.avg, count: r.count }))
-      .catch(() => {});
+      .then((r) => {
+        setAvgRating({ avg: r.avg, count: r.count });
+        setMyRating(isToggle ? null : score);
+      })
+      .catch((e) => {
+        setMyRating(prev);
+        setRatingError(e?.message || "Не удалось поставить оценку");
+      });
   }
 
   const epCount = totalEpisodes || 1;
+  const ratingEpochRef = useRef(0);
   const resume = getProgress(id);
   const watchHref = (ep: number) => `/watch/${id}/${ep}?dub=${dubIdx}`;
 
@@ -80,86 +219,202 @@ export function TitleClient({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
       <div className="space-y-6">
-      <button
-        onClick={() => router.push(watchHref(resume?.episode || 1))}
-        className="pulse-gradient flex w-full items-center justify-center gap-3 rounded-2xl py-4 text-center text-lg font-bold text-white shadow-[0_12px_40px_rgba(255,77,141,.2)]"
-      >
-        <Icon name="play" className="h-5 w-5 fill-current"/> {resume ? `Продолжить · Серия ${resume.episode}` : "Смотреть · Серия 1"}
-      </button>
+        <button
+          onClick={() => router.push(watchHref(resume?.episode || 1))}
+          className="pulse-gradient flex w-full items-center justify-center gap-3 rounded-2xl py-4 text-center text-lg font-bold text-white shadow-[0_12px_40px_rgba(255,77,141,.2)]"
+        >
+          <Icon name="play" className="h-5 w-5 fill-current" />{" "}
+          {resume ? `Продолжить · Серия ${resume.episode}` : "Смотреть · Серия 1"}
+        </button>
 
-      {/* Статусы «Моё» */}
-      <div className="grid grid-cols-3 gap-2">
-        {STATUSES.map((st) => (
-          <button
-            key={st.s}
-            onClick={() => toggleStatus(st.s)}
-            className={`rounded-xl border px-3 py-3 text-sm font-bold ${
-              status === st.s ? "border-primary bg-primary/10 text-primary" : "border-border text-text-muted hover:bg-surface"
-            }`}
-          >
-            {st.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Оценка 1-10 (нужен вход) */}
-      <div className="panel p-5 md:p-6">
-        <div className="mb-2 flex items-center gap-2 font-bold">
-          Оценка
-          {avgRating?.avg != null && (
-            <span className="text-sm font-normal text-primary">
-              ♥ {avgRating.avg.toFixed(1)} ({avgRating.count})
-            </span>
-          )}
-        </div>
-        <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+        {/* Статусы «Моё» */}
+        <div className="grid grid-cols-3 gap-2">
+          {STATUSES.map((st) => (
             <button
-              key={n}
-              onClick={() => rate(n)}
-              disabled={!auth.token}
-              className={`aspect-square rounded-xl text-sm font-bold ${
-                myRating === n ? "pulse-gradient text-white" : "bg-surface text-text"
-              } disabled:opacity-40`}
+              key={st.s}
+              onClick={() => toggleStatus(st.s)}
+              className={`rounded-xl border px-3 py-3 text-sm font-bold ${
+                status === st.s
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-text-muted hover:bg-surface"
+              }`}
             >
-              {n}
+              {st.label}
             </button>
           ))}
         </div>
-        {!auth.token && <p className="mt-1 text-xs text-text-muted">Войдите, чтобы оценивать.</p>}
+
+        {/* Оценка 1-10 */}
+        <div className="panel p-5 md:p-6">
+          <div className="mb-2 flex items-center gap-2 font-bold">
+            Оценка
+            {avgRating?.avg != null && (
+              <span className="text-sm font-normal text-primary">
+                ♥ {avgRating.avg.toFixed(1)} ({avgRating.count})
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+              const filled = myRating != null && n <= myRating;
+              const isPicked = myRating === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => rate(n)}
+                  disabled={!auth.token}
+                  title={auth.token ? `Поставить ${n}` : "Войдите, чтобы оценивать"}
+                  className={`aspect-square rounded-xl text-sm font-bold transition disabled:opacity-40 ${
+                    isPicked
+                      ? "pulse-gradient text-white ring-2 ring-primary ring-offset-2 ring-offset-bg scale-105"
+                      : filled
+                      ? "pulse-gradient text-white/95"
+                      : "bg-surface text-text"
+                  }`}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+          {!auth.token && <p className="mt-1 text-xs text-text-muted">Войдите, чтобы оценивать.</p>}
+          {ratingError && <p className="mt-1 text-xs text-red-400">{ratingError}</p>}
+        </div>
+
+        {/* Порядок просмотра (Shikimori /related) */}
+        {relatedList.length > 0 && (
+          <div className="panel p-5 md:p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold">Порядок просмотра</h3>
+                <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-text-muted">
+                  {relatedList.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => scrollRelated("left")}
+                  disabled={!canScrollLeft}
+                  aria-label="Назад по порядку"
+                  title="Прокрутить назад"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30"
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollRelated("right")}
+                  disabled={!canScrollRight}
+                  aria-label="Вперёд по порядку"
+                  title="Прокрутить вперёд"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+            <div
+              ref={relatedScrollRef}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 scroll-smooth select-none cursor-grab active:cursor-grabbing"
+            >
+              {relatedList.map((node, i) => {
+                const a = node.anime!;
+                const year = a.aired_on ? new Date(a.aired_on).getFullYear() : "";
+                const rel = node.relation_russian || node.relation;
+                const current = a.id === id;
+                return (
+                  <a
+                    key={`${a.id}-${i}`}
+                    ref={current ? currentRelatedRef : null}
+                    href={`/anime/${a.id}`}
+                    onClick={handleCardClick}
+                    className={`group flex w-[120px] shrink-0 flex-col rounded-xl border transition ${
+                      current
+                        ? "border-primary bg-primary/15 ring-2 ring-primary/40 ring-offset-2 ring-offset-bg"
+                        : "border-border bg-bg/30 hover:border-primary/50 hover:bg-surface"
+                    }`}
+                    title={a.russian || a.name}
+                  >
+                    <div className="relative aspect-[2/3] w-full overflow-hidden rounded-t-xl">
+                      <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur">
+                        #{i + 1}
+                      </span>
+                      {current && (
+                        <span className="absolute right-1.5 top-1.5 z-10 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-extrabold text-white shadow">
+                          Текущий
+                        </span>
+                      )}
+                      <PosterImage
+                        src={
+                          shikimoriImage(a.image?.preview) ||
+                          shikimoriImage(a.image?.original) ||
+                          posterOriginal(a.id, a.image)
+                        }
+                        alt={a.russian || a.name}
+                        className="h-full w-full object-cover transition group-hover:scale-105"
+                      />
+                    </div>
+                    <div className="p-1.5 text-[11px] leading-tight">
+                      <div className={`line-clamp-2 font-semibold ${current ? "text-primary font-bold" : "text-text"}`}>
+                        {a.russian || a.name}
+                      </div>
+                      <div className="mt-0.5 text-text-muted">
+                        {year ? `${year}` : ""}
+                        {rel ? ` · ${rel}` : ""}
+                      </div>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="panel p-5 md:p-6">
+          <h3 className="mb-3 text-lg font-bold">Озвучка</h3>
+          <div className="no-scrollbar flex flex-wrap gap-2">
+            {dubs.map((d, i) => (
+              <button
+                key={i}
+                onClick={() => setDubIdx(i)}
+                className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${
+                  i === dubIdx
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-bg/30 text-text-muted hover:bg-surface"
+                }`}
+              >
+                {d.title}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel p-5 md:p-6">
+          <h3 className="mb-3 text-lg font-bold">Серии</h3>
+          <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-10">
+            {Array.from({ length: epCount }, (_, i) => i + 1).map((ep) => (
+              <button
+                key={ep}
+                onClick={() => router.push(watchHref(ep))}
+                className={`aspect-square rounded-xl text-sm font-bold ${
+                  resume?.episode === ep ? "pulse-gradient text-white" : "bg-surface text-text hover:bg-surface-2"
+                }`}
+              >
+                {ep}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="panel p-5 md:p-6"><h3 className="mb-3 text-lg font-bold">Озвучка</h3>
-      <div className="no-scrollbar flex flex-wrap gap-2">
-        {dubs.map((d, i) => (
-          <button
-            key={i}
-            onClick={() => setDubIdx(i)}
-            className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${
-              i === dubIdx ? "border-primary bg-primary/15 text-primary" : "border-border bg-bg/30 text-text-muted"
-            }`}
-          >
-            {d.title}
-          </button>
-        ))}
-      </div></div>
-
-      <div className="panel p-5 md:p-6"><h3 className="mb-3 text-lg font-bold">Серии</h3>
-      <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-10">
-        {Array.from({ length: epCount }, (_, i) => i + 1).map((ep) => (
-          <button
-            key={ep}
-            onClick={() => router.push(watchHref(ep))}
-            className={`aspect-square rounded-xl text-sm font-bold ${
-              resume?.episode === ep ? "pulse-gradient text-white" : "bg-surface text-text"
-            }`}
-          >
-            {ep}
-          </button>
-        ))}
-      </div></div></div>
-
-      <aside><Comments animeId={String(id)} /></aside>
+      <aside>
+        <Comments animeId={String(id)} />
+      </aside>
     </div>
   );
 }
