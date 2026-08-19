@@ -227,16 +227,16 @@ export function TitleClient({
           {resume ? `Продолжить · Серия ${resume.episode}` : "Смотреть · Серия 1"}
         </button>
 
-        {/* Статусы «Моё» */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Кнопки статуса */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {STATUSES.map((st) => (
             <button
               key={st.s}
               onClick={() => toggleStatus(st.s)}
-              className={`rounded-xl border px-3 py-3 text-sm font-bold ${
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold transition sm:px-4 sm:py-2.5 sm:text-sm ${
                 status === st.s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-text-muted hover:bg-surface"
+                  ? "border-primary bg-primary/15 text-primary"
+                  : "border-border bg-bg/30 text-text-muted hover:bg-surface"
               }`}
             >
               {st.label}

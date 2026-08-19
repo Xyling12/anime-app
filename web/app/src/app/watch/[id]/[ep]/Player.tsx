@@ -218,10 +218,32 @@ export function Player({ id, ep, title }: { id: number; ep: number; title: strin
     else video.pause();
   };
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
     const root = document.querySelector(".watch-player");
-    if (!document.fullscreenElement) root?.requestFullscreen().catch(() => {});
-    else document.exitFullscreen().catch(() => {});
+    const video = videoRef.current;
+    if (!document.fullscreenElement) {
+      if (root?.requestFullscreen) {
+        try {
+          await root.requestFullscreen();
+          if (typeof screen !== "undefined" && screen.orientation && "lock" in screen.orientation) {
+            try {
+              await (screen.orientation as any).lock("landscape");
+            } catch {}
+          }
+        } catch {}
+      } else if (video && (video as any).webkitEnterFullscreen) {
+        (video as any).webkitEnterFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+        if (typeof screen !== "undefined" && screen.orientation && "unlock" in screen.orientation) {
+          try {
+            (screen.orientation as any).unlock();
+          } catch {}
+        }
+      }
+    }
   };
 
   const seekTo = (target: number) => {

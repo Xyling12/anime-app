@@ -34,39 +34,67 @@ export default async function AnimePage({ params }: Props) {
 
   return (
     <div className="relative z-10">
-      <section className="relative min-h-[520px] overflow-hidden">
-        <PosterImage src={posterOriginal(d.id,d.image)} alt="" fallbackMode="backdrop" className="absolute inset-0 h-full w-full scale-105 object-cover opacity-40 blur-sm"/>
-        <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/70 to-bg/30"/><div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/70 to-transparent"/>
-        <div className="site-container relative flex min-h-[520px] items-end gap-8 pb-12 pt-20">
+      <section className="relative min-h-[380px] overflow-hidden sm:min-h-[440px] md:min-h-[520px]">
         <PosterImage
           src={posterOriginal(d.id, d.image)}
-          alt={title}
-          className="hidden aspect-[2/3] w-56 shrink-0 rounded-[24px] border border-white/10 object-cover shadow-2xl md:block lg:w-64"
+          alt=""
+          fallbackMode="backdrop"
+          className="absolute inset-0 h-full w-full scale-105 object-cover opacity-40 blur-sm"
         />
-        <div className="max-w-3xl flex-1 pb-2">
-          <div className="eyebrow mb-3">Карточка тайтла</div><h1 className="mb-3 text-4xl font-black leading-[1.06] tracking-[-.05em] md:text-6xl">{title}</h1>
-          <div className="mb-5 flex flex-wrap items-center gap-2 text-sm text-text-muted">
-            {d.score && <span className="flex items-center gap-1 font-bold text-amber-300"><Icon name="star" className="h-4 w-4 fill-current"/>{d.score}</span>}
-            {d.aired_on && ` · ${new Date(d.aired_on).getFullYear()}`}
-            {d.episodes ? ` · Эп: ${d.episodes}` : ""}
-            {d.kind && ` · ${d.kind.toUpperCase()}`}
-          </div>
-          {d.genres && d.genres.length > 0 && (
-            <div className="mb-4 flex flex-wrap gap-2">
-              {d.genres.map((g) => (
-                <span key={g.id} className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-text-muted backdrop-blur">
-                  {g.russian || g.name}
+        <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/75 to-bg/30" />
+        <div className="absolute inset-0 bg-gradient-to-r from-bg via-bg/70 to-transparent" />
+        <div className="site-container relative flex min-h-[380px] flex-col items-start gap-5 pb-8 pt-16 sm:min-h-[440px] sm:flex-row sm:items-end sm:gap-7 md:min-h-[520px] md:gap-8 md:pb-12 md:pt-20">
+          <PosterImage
+            src={posterOriginal(d.id, d.image)}
+            alt={title}
+            className="aspect-[2/3] w-28 shrink-0 rounded-2xl border border-white/10 object-cover shadow-xl sm:w-44 md:w-56 md:rounded-[24px] md:shadow-2xl lg:w-64"
+          />
+          <div className="max-w-3xl flex-1 pb-2">
+            <div className="eyebrow mb-2 sm:mb-3">Карточка тайтла</div>
+            <h1 className="mb-2 text-2xl font-black leading-[1.08] tracking-[-.04em] sm:mb-3 sm:text-4xl md:text-5xl lg:text-6xl">
+              {title}
+            </h1>
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-text-muted sm:mb-5 sm:text-sm">
+              {d.score && (
+                <span className="flex items-center gap-1 font-bold text-amber-300">
+                  <Icon name="star" className="h-3.5 w-3.5 fill-current sm:h-4 sm:w-4" />
+                  {d.score}
                 </span>
-              ))}
+              )}
+              {d.aired_on && ` · ${new Date(d.aired_on).getFullYear()}`}
+              {d.episodes ? ` · Эп: ${d.episodes}` : ""}
+              {d.kind && ` · ${d.kind.toUpperCase()}`}
             </div>
-          )}
-          {cleanDesc && <p className="line-clamp-4 max-w-3xl text-base leading-7 text-text-muted">{cleanDesc}</p>}
-        </div>
+            {d.genres && d.genres.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-1.5 sm:mb-4 sm:gap-2">
+                {d.genres.map((g) => (
+                  <span
+                    key={g.id}
+                    className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[11px] text-text-muted backdrop-blur sm:px-3 sm:py-1.5 sm:text-xs"
+                  >
+                    {g.russian || g.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            {cleanDesc && (
+              <p className="line-clamp-3 max-w-3xl text-sm leading-relaxed text-text-muted sm:line-clamp-4 sm:text-base sm:leading-7">
+                {cleanDesc}
+              </p>
+            )}
+          </div>
         </div>
       </section>
 
       {/* Клиентский блок: озвучки, серии, кнопка «Смотреть» */}
-      <div className="page-shell !pt-0"><TitleClient id={d.id} title={title} totalEpisodes={Math.max(d.episodes_aired || 0, d.episodes || 0)} image={d.image} /></div>
+      <div className="page-shell !pt-0">
+        <TitleClient
+          id={d.id}
+          title={title}
+          totalEpisodes={Math.max(d.episodes_aired || 0, d.episodes || 0)}
+          image={d.image}
+        />
+      </div>
     </div>
   );
 }

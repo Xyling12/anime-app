@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
-  Дизайн-система AniPulse Web — современная, десктоп-first.
+  Дизайн-система AniPulse Web — современная, responsive-first.
   Тёмная по умолчанию, светлая по data-theme. Фирменные фиолет→розовый.
 */
 :root {
@@ -56,6 +56,7 @@
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
+  box-sizing: border-box;
 }
 
 html,
@@ -64,9 +65,14 @@ body {
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  min-height: 100%;
 }
 
-body { overflow-x: hidden; }
+body {
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
@@ -86,6 +92,12 @@ body:has([data-pulse-app]) > footer {
 body:has([data-pulse-app]) > main {
   padding-bottom: 0 !important;
 }
+
+/* Safe area utilities */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left { padding-left: env(safe-area-inset-left); }
+.safe-right { padding-right: env(safe-area-inset-right); }
 
 /* Фон с мягким свечением сверху */
 body::before {
@@ -112,18 +124,32 @@ body::before {
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 
-.site-container { width: min(100% - 40px, 1440px); margin-inline: auto; }
-.page-shell { width: min(100% - 40px, 1280px); margin-inline: auto; padding-block: 48px 80px; }
+.site-container {
+  width: min(100% - 32px, 1440px);
+  margin-inline: auto;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.page-shell {
+  width: min(100% - 32px, 1280px);
+  margin-inline: auto;
+  padding-block: 32px 70px;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+@media (min-width: 640px) {
+  .site-container {
+    width: min(100% - 48px, 1440px);
+  }
+  .page-shell {
+    width: min(100% - 48px, 1280px);
+    padding-block: 48px 80px;
+  }
+}
+
 .panel { border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, transparent); border-radius: 24px; }
-.legal-page { width: min(100% - 40px, 880px); margin-inline: auto; padding-block: 48px 90px; color: var(--text-muted); line-height: 1.75; }
-.legal-page h1 { color: var(--text); font-size: clamp(1.8rem, 4vw, 2.7rem); font-weight: 900; letter-spacing: -.04em; line-height: 1.1; }
-.legal-page h2 { color: var(--text); margin-bottom: .55rem; font-size: 1.15rem; font-weight: 800; }
-.legal-page section { margin-top: 1.75rem; }
-.legal-page p + p { margin-top: .8rem; }
-.legal-page a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
-.legal-updated { margin-top: .7rem; color: var(--text-dim); font-size: .85rem; }
 .eyebrow { color: var(--primary); font-size: .75rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.section-title { font-size: clamp(1.4rem, 2vw, 2rem); font-weight: 800; letter-spacing: -.035em; }
+.section-title { font-size: clamp(1.25rem, 2vw, 2rem); font-weight: 800; letter-spacing: -.035em; }
 .soft-ring { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-light) 75%, transparent); }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -140,9 +166,11 @@ body::before {
     transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
     box-shadow 0.25s ease;
 }
-.card-hover:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--shadow), var(--glow);
+@media (hover: hover) {
+  .card-hover:hover {
+    transform: translateY(-6px);
+    box-shadow: var(--shadow), var(--glow);
+  }
 }
 
 @keyframes shimmer {
@@ -160,7 +188,6 @@ body::before {
 }
 
 @media (max-width: 767px) {
-  .site-container, .page-shell { width: min(100% - 28px, 100%); }
-  .legal-page { width: min(100% - 28px, 100%); padding-block: 30px 110px; }
-  .page-shell { padding-block: 28px 100px; }
+  .site-container, .page-shell { width: min(100% - 24px, 100%); }
+  .page-shell { padding-block: 20px 80px; }
 }
