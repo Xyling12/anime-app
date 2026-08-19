@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { register, login, forgot, reset } from "@/lib/auth";
 import { auth } from "@/lib/api";
 import { oauthUrl } from "@/lib/auth";
-import { syncAll } from "@/lib/sync";
+import { reachGoal } from "@/lib/metrika";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -20,8 +19,6 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
   const [pass, setPass] = useState("");
   const [pass2, setPass2] = useState("");
   const [code, setCode] = useState("");
-  const [acceptTerms, setAcceptTerms] = useState(false);
-  const [privacyConsent, setPrivacyConsent] = useState(false);
 
   async function submit() {
     setError(null);
@@ -31,15 +28,14 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
         const r = await login(nick.trim(), pass);
         if (r.error) throw new Error(r.error);
         auth.token = r.token!;
-        await syncAll();
+        reachGoal("auth_login");
         onDone();
       } else if (mode === "register") {
         if (pass !== pass2) throw new Error("Пароли не совпадают");
-        if (!acceptTerms || !privacyConsent) throw new Error("Подтвердите соглашение и согласие на обработку данных");
-        const r = await register(nick.trim(), email.trim(), pass, acceptTerms, privacyConsent);
+        const r = await register(nick.trim(), email.trim(), pass);
         if (r.error) throw new Error(r.error);
         auth.token = r.token!;
-        await syncAll();
+        reachGoal("auth_register");
         onDone();
       } else {
         // forgot
@@ -50,7 +46,6 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
           const r = await reset(email.trim(), code.trim(), pass);
           if (r.error) throw new Error(r.error);
           auth.token = r.token!;
-          await syncAll();
           onDone();
         }
       }
@@ -74,7 +69,7 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
         <h2 className="mb-2 text-3xl font-black tracking-[-.04em]">
           {mode === "login" ? "Вход" : mode === "register" ? "Регистрация" : "Восстановление пароля"}
         </h2>
-        <p className="mb-6 text-sm text-text-muted">{mode === "login" ? "Продолжи просмотр с того места, где остановился." : mode === "register" ? "Сохраняй коллекцию, оценки и прогресс между устройствами." : "Вернём доступ к аккаунту через почту."}</p>
+        <p className="mb-6 text-sm text-text-muted">{mode === "login" ? "Продолжи просмотр и общение с того места, где остановился." : mode === "register" ? "Сохраняй коллекцию, оценки и общайся с друзьями." : "Вернём доступ к аккаунту через почту."}</p>
 
         <div className="space-y-3">
           {mode === "register" && (
@@ -113,17 +108,13 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
               onChange={(e) => setPass2(e.target.value)}
             />
           )}
-          {mode === "register" && <div className="space-y-3 pt-2 text-xs leading-5 text-text-muted">
-            <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 accent-pink-500" checked={acceptTerms} onChange={(e)=>setAcceptTerms(e.target.checked)}/><span>Я принимаю <Link href="/terms" target="_blank" className="text-primary underline">Пользовательское соглашение</Link> и <Link href="/community-rules" target="_blank" className="text-primary underline">Правила сообщества</Link>.</span></label>
-            <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 accent-pink-500" checked={privacyConsent} onChange={(e)=>setPrivacyConsent(e.target.checked)}/><span>Я отдельно даю <Link href="/personal-data-consent" target="_blank" className="text-primary underline">согласие на обработку персональных данных</Link> и ознакомлен(а) с <Link href="/privacy" target="_blank" className="text-primary underline">Политикой конфиденциальности</Link>.</span></label>
-          </div>}
         </div>
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
         <button
           onClick={submit}
-          disabled={busy || (mode === "register" && (!acceptTerms || !privacyConsent))}
+          disabled={busy}
           className="pulse-gradient mt-5 w-full rounded-xl py-3.5 font-bold text-white shadow-[0_10px_30px_rgba(255,77,141,.2)] disabled:opacity-50"
         >
           {busy

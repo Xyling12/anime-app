@@ -11,6 +11,7 @@ import { Comments } from "@/components/Comments";
 import type { ShikiImage, ShikiRelatedNode } from "@/lib/types";
 import { Icon } from "@/components/Icon";
 import { PosterImage } from "@/components/PosterImage";
+import { reachGoal } from "@/lib/metrika";
 
 const STATUSES: { label: string; s: WatchStatus }[] = [
   { label: "Смотрю", s: "watching" },
@@ -186,6 +187,7 @@ export function TitleClient({
     const next = status === s ? "none" : s;
     setStatus(next);
     setFavorite({ animeId: id, title, image, status: next });
+    reachGoal("favorite_status", { animeId: id, title, status: next });
   }
 
   function rate(score: number) {
@@ -195,6 +197,7 @@ export function TitleClient({
     setMyRating(isToggle ? null : score);
     setRatingError(null);
     ratingEpochRef.current++;
+    reachGoal("rate_anime", { animeId: id, title, score });
     api
       .post<{ avg?: number; count: number; my?: number }>("rating", { animeId: id, score }, true)
       .then((r) => {
@@ -220,7 +223,11 @@ export function TitleClient({
     <div className="grid w-full min-w-0 max-w-full gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
       <div className="w-full min-w-0 space-y-5 sm:space-y-6">
         <button
-          onClick={() => router.push(watchHref(resume?.episode || 1))}
+          onClick={() => {
+            const ep = resume?.episode || 1;
+            reachGoal("start_watch", { animeId: id, title, episode: ep });
+            router.push(watchHref(ep));
+          }}
           className="pulse-gradient flex w-full items-center justify-center gap-3 rounded-2xl py-3.5 sm:py-4 text-center text-base sm:text-lg font-bold text-white shadow-[0_12px_40px_rgba(255,77,141,.2)]"
         >
           <Icon name="play" className="h-5 w-5 fill-current" />{" "}
@@ -381,7 +388,10 @@ export function TitleClient({
             {dubs.map((d, i) => (
               <button
                 key={i}
-                onClick={() => setDubIdx(i)}
+                onClick={() => {
+                  reachGoal("change_dub", { animeId: id, dub: d.title });
+                  setDubIdx(i);
+                }}
                 className={`rounded-xl border px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold transition ${
                   i === dubIdx
                     ? "border-primary bg-primary/15 text-primary"
@@ -400,7 +410,10 @@ export function TitleClient({
             {Array.from({ length: epCount }, (_, i) => i + 1).map((ep) => (
               <button
                 key={ep}
-                onClick={() => router.push(watchHref(ep))}
+                onClick={() => {
+                  reachGoal("select_episode", { animeId: id, title, episode: ep });
+                  router.push(watchHref(ep));
+                }}
                 className={`aspect-square rounded-xl text-xs sm:text-sm font-bold transition ${
                   resume?.episode === ep ? "pulse-gradient text-white shadow-md" : "bg-surface text-text hover:bg-surface-2"
                 }`}

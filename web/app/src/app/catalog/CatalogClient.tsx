@@ -6,6 +6,7 @@ import { catalog } from "@/lib/catalog";
 import type { ShikiAnime } from "@/lib/types";
 import { PosterCard } from "@/components/PosterCard";
 import { Icon } from "@/components/Icon";
+import { reachGoal } from "@/lib/metrika";
 
 type Filter = { label: string; key: string; f: { order: string; status?: string } };
 const FILTERS: Filter[] = [
@@ -70,8 +71,11 @@ export function CatalogClient() {
     const timer = setTimeout(() => {
       setEnd(false);
       setPage(1);
+      if (search.trim()) {
+        reachGoal("catalog_search", { query: search.trim() });
+      }
       fetchItems(1, true, search, filterIdx);
-    }, search ? 300 : 0);
+    }, search ? 350 : 0);
 
     return () => clearTimeout(timer);
   }, [search, filterIdx, fetchItems]);
@@ -96,6 +100,9 @@ export function CatalogClient() {
     e.preventDefault();
     setEnd(false);
     setPage(1);
+    if (search.trim()) {
+      reachGoal("catalog_search", { query: search.trim() });
+    }
     fetchItems(1, true, search, filterIdx);
   };
 

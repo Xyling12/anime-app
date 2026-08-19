@@ -7,6 +7,7 @@ import { useMe } from "@/lib/useMe";
 import { Avatar } from "@/components/Avatar";
 import type { ChatMessage } from "@/lib/types";
 import { Icon } from "./Icon";
+import { reachGoal } from "@/lib/metrika";
 
 /** Комментарии к тайтлу (animeId — строка, серверный ключ). */
 export function Comments({ animeId }: { animeId: string }) {
@@ -25,6 +26,7 @@ export function Comments({ animeId }: { animeId: string }) {
       const cm = await sendComment(animeId, input.trim());
       setList((prev) => [...prev, cm]);
       setInput("");
+      reachGoal("post_comment", { animeId });
     } catch {}
   }
 

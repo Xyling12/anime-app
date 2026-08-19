@@ -4,6 +4,7 @@ import "./cinema.css";
 import { Providers } from "@/components/Providers";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
+import { Metrika } from "@/components/Metrika";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -36,6 +37,9 @@ export const metadata: Metadata = {
   ],
   alternates: {
     canonical: "https://anipulsetv.ru",
+  },
+  verification: {
+    google: "Px3BESxJup4RWqYxfvYE8rcE51MmUURrrHsVQQ_XNJw",
   },
   openGraph: {
     title: "AniPulse — Смотреть аниме онлайн бесплатно в хорошем качестве",
@@ -105,6 +109,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ru" data-theme="dark" className="h-full antialiased" suppressHydrationWarning>
       <head>
+        <meta name="google-site-verification" content="Px3BESxJup4RWqYxfvYE8rcE51MmUURrrHsVQQ_XNJw" />
         <link rel="preconnect" href="https://anipulsetv.ru" />
         <link rel="dns-prefetch" href="https://shikimori.io" />
         <link rel="dns-prefetch" href="https://kodik.info" />
@@ -115,6 +120,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body className="flex min-h-full flex-col bg-bg text-text">
         <Providers>
+          <Metrika />
           <NavBar />
           {/* pb под нижнюю навигацию на мобилке с учётом safe area */}
           <main className="app-content relative z-10 flex-1">{children}</main>
