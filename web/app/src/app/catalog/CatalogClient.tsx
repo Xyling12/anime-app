@@ -1,20 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { catalog } from "@/lib/catalog";
 import type { ShikiAnime } from "@/lib/types";
 import { PosterCard } from "@/components/PosterCard";
 import { Icon } from "@/components/Icon";
 
-type Filter = { order: string; status?: string };
-const FILTERS: { label: string; key: string; f: Filter }[] = [
+type Filter = { label: string; key: string; f: { order: string; status?: string } };
+const FILTERS: Filter[] = [
   { label: "Все", key: "all", f: { order: "popularity" } },
   { label: "Онгоинги", key: "ongoing", f: { order: "popularity", status: "ongoing" } },
   { label: "По рейтингу", key: "ranked", f: { order: "ranked" } },
 ];
 
 export function CatalogClient() {
+  const router = useRouter();
   const params = useSearchParams();
   const [items, setItems] = useState<ShikiAnime[]>([]);
   const [page, setPage] = useState(1);
@@ -24,85 +25,137 @@ export function CatalogClient() {
     return i >= 0 ? i : 0;
   });
   const [search, setSearch] = useState(params.get("q") || "");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [end, setEnd] = useState(false);
-  const gen = useRef(0);
-  const sentinel = useRef<HTMLDivElement>(null);
+  const genRef = useRef(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const loadPage = useCallback(
-    async (reset: boolean) => {
-      if (loading) return;
-      const myGen = gen.current;
+  const fetchItems = useCallback(
+    async (pageNum: number, isReset: boolean, query: string, currentFilterIdx: number) => {
+      const currentGen = ++genRef.current;
       setLoading(true);
-      const nextPage = reset ? 1 : page;
       try {
-        const f = FILTERS[filterIdx].f;
-        const list = await catalog({ page: nextPage, ...f, search: search.trim() || undefined });
-        if (myGen !== gen.current) return;
+        const filter = FILTERS[currentFilterIdx].f;
+        const list = await catalog({
+          page: pageNum,
+          ...filter,
+          search: query.trim() || undefined,
+        });
+
+        if (currentGen !== genRef.current) return;
+
         setItems((prev) => {
-          const merged = reset ? list : [...prev, ...list];
+          if (isReset) return list;
+          const merged = [...prev, ...list];
           const seen = new Set<number>();
           return merged.filter((a) => (seen.has(a.id) ? false : seen.add(a.id)));
         });
-        setPage(nextPage + 1);
-        setEnd(list.length === 0 || !!search.trim());
+
+        setPage(pageNum + 1);
+        setEnd(list.length === 0 || (!!query.trim() && list.length < 24));
+      } catch (err) {
+        console.error("Catalog fetch error:", err);
       } finally {
-        if (myGen === gen.current) setLoading(false);
+        if (currentGen === genRef.current) {
+          setLoading(false);
+        }
       }
     },
-    [loading, page, filterIdx, search],
+    [],
   );
 
+  // Debounced search / filter change
   useEffect(() => {
-    gen.current++;
-    // Reset the paginated view when its query changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setItems([]);
-    setPage(1);
-    setEnd(false);
-    const t = setTimeout(() => loadPage(true), search ? 400 : 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterIdx, search]);
+    const timer = setTimeout(() => {
+      setEnd(false);
+      setPage(1);
+      fetchItems(1, true, search, filterIdx);
+    }, search ? 300 : 0);
 
+    return () => clearTimeout(timer);
+  }, [search, filterIdx, fetchItems]);
+
+  // Infinite scroll
   useEffect(() => {
-    const el = sentinel.current;
+    const el = sentinelRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      (e) => {
-        if (e[0].isIntersecting && !loading && !end) loadPage(false);
+      (entries) => {
+        if (entries[0].isIntersecting && !loading && !end) {
+          fetchItems(page, false, search, filterIdx);
+        }
       },
-      { rootMargin: "800px" },
+      { rootMargin: "600px" },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadPage, loading, end]);
+  }, [loading, end, page, search, filterIdx, fetchItems]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setEnd(false);
+    setPage(1);
+    fetchItems(1, true, search, filterIdx);
+  };
+
+  const handleClearSearch = () => {
+    setSearch("");
+    inputRef.current?.focus();
+  };
 
   return (
-    <div className="page-shell relative z-10">
-      <div className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-        <div><div className="eyebrow mb-2">Вся коллекция</div><h1 className="text-4xl font-black tracking-[-.045em] md:text-5xl">Каталог аниме</h1><p className="mt-2 text-text-muted">Находи новое по популярности, рейтингу и статусу выхода.</p></div>
-        <div className="text-sm text-text-dim">{items.length ? `Загружено: ${items.length}` : "Подбираем тайтлы"}</div>
+    <div className="page-shell relative z-10 w-full min-w-0 max-w-full">
+      <div className="mb-6 flex flex-col justify-between gap-4 lg:mb-8 lg:flex-row lg:items-end">
+        <div>
+          <div className="eyebrow mb-1.5 sm:mb-2">Вся коллекция</div>
+          <h1 className="text-3xl font-black tracking-[-.045em] sm:text-4xl md:text-5xl">Каталог аниме</h1>
+          <p className="mt-1.5 text-xs text-text-muted sm:text-sm md:text-base">
+            Находи новое по популярности, рейтингу и статусу выхода.
+          </p>
+        </div>
+        <div className="text-xs text-text-dim sm:text-sm">
+          {items.length ? `Найдено: ${items.length}` : loading ? "Ищем тайтлы…" : "По вашему запросу"}
+        </div>
       </div>
 
-      <div className="panel mb-5 flex items-center gap-3 px-5 py-4 transition focus-within:border-primary/60">
-        <Icon name="search" className="h-5 w-5 text-text-dim"/>
+      {/* Поисковая форма */}
+      <form
+        onSubmit={handleSearchSubmit}
+        className="panel mb-5 flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3.5 transition focus-within:border-primary/60"
+      >
+        <Icon name="search" className="h-5 w-5 shrink-0 text-text-dim" />
         <input
+          ref={inputRef}
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск аниме…"
-          className="w-full bg-transparent text-base outline-none placeholder:text-text-dim"
+          placeholder="Поиск по названию (например, Наруто, Блич, Фрирен)…"
+          className="w-full bg-transparent text-sm sm:text-base outline-none placeholder:text-text-dim"
         />
-      </div>
+        {search && (
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            aria-label="Очистить поиск"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface-2 text-text-muted hover:bg-surface-hover hover:text-text"
+          >
+            ✕
+          </button>
+        )}
+      </form>
 
-      <div className="no-scrollbar mb-9 flex gap-2 overflow-x-auto">
+      {/* Переключатели фильтров */}
+      <div className="no-scrollbar mb-6 sm:mb-8 flex gap-2 overflow-x-auto pb-1">
         {FILTERS.map((f, i) => (
           <button
             key={f.key}
+            type="button"
             onClick={() => setFilterIdx(i)}
-            className={`shrink-0 rounded-xl px-5 py-2.5 text-sm font-semibold transition ${
-              i === filterIdx ? "bg-primary text-white shadow-lg" : "border border-border bg-surface text-text-muted hover:bg-surface-hover"
+            className={`shrink-0 rounded-xl px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold transition ${
+              i === filterIdx
+                ? "bg-primary text-white shadow-lg"
+                : "border border-border bg-surface text-text-muted hover:bg-surface-hover"
             }`}
           >
             {f.label}
@@ -110,21 +163,42 @@ export function CatalogClient() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 md:gap-x-4 md:gap-y-8 lg:grid-cols-5 xl:grid-cols-6">
+      {/* Сетка тайтлов */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 md:grid-cols-4 md:gap-x-4 md:gap-y-7 lg:grid-cols-5 xl:grid-cols-6">
         {items.map((a) => (
           <PosterCard key={a.id} anime={a} />
         ))}
       </div>
 
+      {/* Индикатор загрузки */}
       {loading && (
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 lg:grid-cols-5 xl:grid-cols-6">
-          {Array.from({ length: 8 }).map((_, i) => (
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 lg:grid-cols-5 xl:grid-cols-6">
+          {Array.from({ length: items.length ? 6 : 12 }).map((_, i) => (
             <div key={i} className="skeleton aspect-[2/3] rounded-2xl" />
           ))}
         </div>
       )}
-      {!loading && !items.length && <p className="py-16 text-center text-text-muted">Ничего не найдено.</p>}
-      <div ref={sentinel} className="h-1" />
+
+      {/* Пустое состояние */}
+      {!loading && !items.length && (
+        <div className="py-16 text-center">
+          <p className="text-base sm:text-lg font-bold text-text">Ничего не найдено</p>
+          <p className="mt-1 text-xs sm:text-sm text-text-muted">
+            Попробуйте изменить поисковый запрос или проверить правильность написания.
+          </p>
+          {search && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="mt-4 rounded-xl border border-border bg-surface px-4 py-2 text-xs sm:text-sm font-semibold text-primary hover:bg-surface-hover"
+            >
+              Сбросить поиск
+            </button>
+          )}
+        </div>
+      )}
+
+      <div ref={sentinelRef} className="h-4" />
     </div>
   );
 }

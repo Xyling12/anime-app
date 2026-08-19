@@ -1,8 +1,8 @@
 /** Запросы каталога/тайтлов к Shikimori через шлюз. */
 import { api } from "./api";
-import type { ShikiAnime, ShikiAnimeDetails, ShikiCalendarEntry, AnilibriaUpdate } from "./types";
+import type { ShikiAnime, ShikiAnimeDetails, ShikiCalendarEntry, AnilibriaUpdate, ShikiRelatedNode } from "./types";
 
-const LIMIT = 20;
+const LIMIT = 24;
 
 /** Страница каталога. order: popularity|ranked; status: ongoing|released|... */
 export function catalog(opts: {
@@ -12,17 +12,18 @@ export function catalog(opts: {
   genre?: string;
   search?: string;
 } = {}): Promise<ShikiAnime[]> {
-  if (opts.search?.trim()) {
-    return api.get<ShikiAnime[]>(`shikimori/api/animes?search=${encodeURIComponent(opts.search)}&limit=${LIMIT}`);
-  }
   const p = new URLSearchParams({
     page: String(opts.page ?? 1),
     limit: String(LIMIT),
-    order: opts.order ?? "popularity",
     censored: "false",
   });
-  if (opts.status) p.set("status", opts.status);
-  if (opts.genre) p.set("genre", opts.genre);
+  if (opts.search?.trim()) {
+    p.set("search", opts.search.trim());
+  } else {
+    p.set("order", opts.order ?? "popularity");
+    if (opts.status) p.set("status", opts.status);
+    if (opts.genre) p.set("genre", opts.genre);
+  }
   return api.get<ShikiAnime[]>(`shikimori/api/animes?${p.toString()}`);
 }
 
@@ -42,4 +43,9 @@ export function anilibriaUpdates(): Promise<AnilibriaUpdate[]> {
 export function ratings(ids: number[]): Promise<Record<string, { avg?: number; count: number }>> {
   if (!ids.length) return Promise.resolve({});
   return api.get(`ratings?ids=${ids.join(",")}`);
+}
+
+/** Связанные тайтлы из `/api/animes/{id}/related` (для блока «Порядок просмотра»). */
+export function related(id: number): Promise<ShikiRelatedNode[]> {
+  return api.get<ShikiRelatedNode[]>(`shikimori/api/animes/${id}/related`);
 }
