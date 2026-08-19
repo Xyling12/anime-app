@@ -49,14 +49,20 @@ export const api = {
     req<T>(path, { method: "POST", body: JSON.stringify(body), auth: withAuth }),
 };
 
+function isValidShikiPath(path?: string | null): boolean {
+  if (!path) return false;
+  if (path.includes("missing") || path.includes("/assets/")) return false;
+  return path.includes("system/animes/");
+}
+
 /** Постер тайтла: preview для сеток (лёгкий), original — для крупных экранов. */
 export function posterPreview(
   id: number,
   image?: { preview?: string; original?: string; x96?: string; x48?: string } | null,
 ): string {
   const path = image?.preview || image?.original || image?.x96;
-  if (path) {
-    const clean = path.startsWith("/") ? path.slice(1) : path;
+  if (isValidShikiPath(path)) {
+    const clean = path!.startsWith("/") ? path!.slice(1) : path!;
     return `${GATEWAY}shikimori/${clean}`;
   }
   return `${GATEWAY}poster/${id}`;
@@ -67,8 +73,8 @@ export function posterOriginal(
   image?: { preview?: string; original?: string } | null,
 ): string {
   const path = image?.original || image?.preview;
-  if (path) {
-    const clean = path.startsWith("/") ? path.slice(1) : path;
+  if (isValidShikiPath(path)) {
+    const clean = path!.startsWith("/") ? path!.slice(1) : path!;
     return `${GATEWAY}shikimori/${clean}`;
   }
   return `${GATEWAY}poster/${id}`;

@@ -31,6 +31,14 @@ export function PosterImage({
       if (currentSrc.includes("/alapi/shikimori/system/")) {
         const directPath = currentSrc.split("/alapi/shikimori/")[1];
         if (directPath) {
+          image.onerror = () => {
+            image.onerror = null;
+            image.src = "/brand/anipulse-icon.png";
+            image.style.objectFit = "contain";
+            image.style.padding = "24%";
+            image.style.background =
+              "radial-gradient(circle at 50% 35%, rgba(139,92,246,.3), transparent 45%), #15151f";
+          };
           image.src = `https://shikimori.io/${directPath}`;
           return;
         }
