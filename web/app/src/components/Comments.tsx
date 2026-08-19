@@ -56,7 +56,7 @@ export function Comments({ animeId }: { animeId: string }) {
             <Link href={`/u/${encodeURIComponent(c.nick)}`}>
               <Avatar id={c.avatar} size={32} nick={c.nick} />
             </Link>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="text-xs font-bold text-primary">{c.nick}</div>
               {c.spoiler && !revealed.has(c.id) ? (
                 <button
@@ -66,7 +66,7 @@ export function Comments({ animeId }: { animeId: string }) {
                   ⚠ Спойлер — нажми, чтобы открыть
                 </button>
               ) : (
-                <div className="text-sm">{c.text}</div>
+                <div className="text-sm break-words">{c.text}</div>
               )}
             </div>
           </div>

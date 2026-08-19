@@ -5,8 +5,8 @@ import { TitleClient } from "./TitleClient";
 import { Icon } from "@/components/Icon";
 import { PosterImage } from "@/components/PosterImage";
 
-// ISR: страница тайтла — статика с часовым обновлением. Именно её индексирует Google.
-export const revalidate = 3600;
+// ISR: страница тайтла — статика с минутным обновлением.
+export const revalidate = 60;
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -87,7 +87,7 @@ export default async function AnimePage({ params }: Props) {
       </section>
 
       {/* Клиентский блок: озвучки, серии, кнопка «Смотреть» */}
-      <div className="page-shell !pt-0">
+      <div className="page-shell !pt-0 w-full min-w-0 overflow-hidden">
         <TitleClient
           id={d.id}
           title={title}

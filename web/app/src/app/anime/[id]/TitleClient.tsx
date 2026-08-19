@@ -217,11 +217,11 @@ export function TitleClient({
     return <p className="mt-8 text-text-muted">Видео пока не найдено для этого тайтла.</p>;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
-      <div className="space-y-6">
+    <div className="grid w-full min-w-0 max-w-full gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
+      <div className="w-full min-w-0 space-y-5 sm:space-y-6">
         <button
           onClick={() => router.push(watchHref(resume?.episode || 1))}
-          className="pulse-gradient flex w-full items-center justify-center gap-3 rounded-2xl py-4 text-center text-lg font-bold text-white shadow-[0_12px_40px_rgba(255,77,141,.2)]"
+          className="pulse-gradient flex w-full items-center justify-center gap-3 rounded-2xl py-3.5 sm:py-4 text-center text-base sm:text-lg font-bold text-white shadow-[0_12px_40px_rgba(255,77,141,.2)]"
         >
           <Icon name="play" className="h-5 w-5 fill-current" />{" "}
           {resume ? `Продолжить · Серия ${resume.episode}` : "Смотреть · Серия 1"}
@@ -245,16 +245,16 @@ export function TitleClient({
         </div>
 
         {/* Оценка 1-10 */}
-        <div className="panel p-5 md:p-6">
-          <div className="mb-2 flex items-center gap-2 font-bold">
+        <div className="panel w-full min-w-0 overflow-hidden p-4 sm:p-5 md:p-6">
+          <div className="mb-2 flex items-center gap-2 font-bold text-sm sm:text-base">
             Оценка
             {avgRating?.avg != null && (
-              <span className="text-sm font-normal text-primary">
+              <span className="text-xs sm:text-sm font-normal text-primary">
                 ♥ {avgRating.avg.toFixed(1)} ({avgRating.count})
               </span>
             )}
           </div>
-          <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+          <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10 sm:gap-2">
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
               const filled = myRating != null && n <= myRating;
               const isPicked = myRating === n;
@@ -283,10 +283,10 @@ export function TitleClient({
 
         {/* Порядок просмотра (Shikimori /related) */}
         {relatedList.length > 0 && (
-          <div className="panel p-5 md:p-6">
+          <div className="panel w-full min-w-0 overflow-hidden p-4 sm:p-5 md:p-6">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold">Порядок просмотра</h3>
+                <h3 className="text-base sm:text-lg font-bold">Порядок просмотра</h3>
                 <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-text-muted">
                   {relatedList.length}
                 </span>
@@ -298,7 +298,7 @@ export function TitleClient({
                   disabled={!canScrollLeft}
                   aria-label="Назад по порядку"
                   title="Прокрутить назад"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30"
+                  className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30 text-xs sm:text-sm"
                 >
                   ←
                 </button>
@@ -308,7 +308,7 @@ export function TitleClient({
                   disabled={!canScrollRight}
                   aria-label="Вперёд по порядку"
                   title="Прокрутить вперёд"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30"
+                  className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-border bg-surface text-text transition hover:border-primary/50 hover:bg-surface disabled:pointer-events-none disabled:opacity-30 text-xs sm:text-sm"
                 >
                   →
                 </button>
@@ -320,7 +320,7 @@ export function TitleClient({
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
-              className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 scroll-smooth select-none cursor-grab active:cursor-grabbing"
+              className="no-scrollbar -mx-1 flex w-full max-w-full gap-2.5 sm:gap-3 overflow-x-auto px-1 pb-1 scroll-smooth select-none cursor-grab active:cursor-grabbing"
             >
               {relatedList.map((node, i) => {
                 const a = node.anime!;
@@ -333,7 +333,7 @@ export function TitleClient({
                     ref={current ? currentRelatedRef : null}
                     href={`/anime/${a.id}`}
                     onClick={handleCardClick}
-                    className={`group flex w-[120px] shrink-0 flex-col rounded-xl border transition ${
+                    className={`group flex w-[115px] sm:w-[125px] shrink-0 flex-col rounded-xl border transition ${
                       current
                         ? "border-primary bg-primary/15 ring-2 ring-primary/40 ring-offset-2 ring-offset-bg"
                         : "border-border bg-bg/30 hover:border-primary/50 hover:bg-surface"
@@ -375,14 +375,14 @@ export function TitleClient({
           </div>
         )}
 
-        <div className="panel p-5 md:p-6">
-          <h3 className="mb-3 text-lg font-bold">Озвучка</h3>
-          <div className="no-scrollbar flex flex-wrap gap-2">
+        <div className="panel w-full min-w-0 overflow-hidden p-4 sm:p-5 md:p-6">
+          <h3 className="mb-3 text-base sm:text-lg font-bold">Озвучка</h3>
+          <div className="flex w-full flex-wrap gap-2">
             {dubs.map((d, i) => (
               <button
                 key={i}
                 onClick={() => setDubIdx(i)}
-                className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${
+                className={`rounded-xl border px-3 py-2 text-xs sm:px-4 sm:py-2.5 sm:text-sm font-semibold transition ${
                   i === dubIdx
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-bg/30 text-text-muted hover:bg-surface"
@@ -394,15 +394,15 @@ export function TitleClient({
           </div>
         </div>
 
-        <div className="panel p-5 md:p-6">
-          <h3 className="mb-3 text-lg font-bold">Серии</h3>
-          <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-10">
+        <div className="panel w-full min-w-0 overflow-hidden p-4 sm:p-5 md:p-6">
+          <h3 className="mb-3 text-base sm:text-lg font-bold">Серии</h3>
+          <div className="grid grid-cols-5 gap-1.5 xs:grid-cols-6 sm:grid-cols-8 lg:grid-cols-10 sm:gap-2">
             {Array.from({ length: epCount }, (_, i) => i + 1).map((ep) => (
               <button
                 key={ep}
                 onClick={() => router.push(watchHref(ep))}
-                className={`aspect-square rounded-xl text-sm font-bold ${
-                  resume?.episode === ep ? "pulse-gradient text-white" : "bg-surface text-text hover:bg-surface-2"
+                className={`aspect-square rounded-xl text-xs sm:text-sm font-bold transition ${
+                  resume?.episode === ep ? "pulse-gradient text-white shadow-md" : "bg-surface text-text hover:bg-surface-2"
                 }`}
               >
                 {ep}
@@ -412,7 +412,7 @@ export function TitleClient({
         </div>
       </div>
 
-      <aside>
+      <aside className="w-full min-w-0">
         <Comments animeId={String(id)} />
       </aside>
     </div>
