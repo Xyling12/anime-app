@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { ShikiAnime } from "@/lib/types";
 import { PosterCard } from "./PosterCard";
 
-/** Горизонтальная лента тайтлов с заголовком, стрелками навигации и поддержкой колесика мыши. */
+/** Горизонтальная лента тайтлов с заголовком, стрелками навигации и плавным перетаскиванием мышкой. */
 export function Row({ title, items, href }: { title: string; items: ShikiAnime[]; href?: string }) {
   const seen = new Set<number>();
   const filteredItems = items.filter((a) => (seen.has(a.id) ? false : seen.add(a.id)));
@@ -13,6 +13,11 @@ export function Row({ title, items, href }: { title: string; items: ShikiAnime[]
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const isDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const hasMovedRef = useRef(false);
 
   const updateScrollButtons = () => {
     const el = scrollRef.current;
@@ -29,24 +34,38 @@ export function Row({ title, items, href }: { title: string; items: ShikiAnime[]
     setTimeout(updateScrollButtons, 250);
   };
 
-  useEffect(() => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = scrollRef.current;
     if (!el) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0) {
-        const maxScroll = el.scrollWidth - el.clientWidth;
-        if (maxScroll > 0) {
-          if ((e.deltaY > 0 && el.scrollLeft < maxScroll - 1) || (e.deltaY < 0 && el.scrollLeft > 1)) {
-            e.preventDefault();
-            el.scrollLeft += e.deltaY;
-            updateScrollButtons();
-          }
-        }
-      }
-    };
-    el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
-  }, [filteredItems]);
+    isDownRef.current = true;
+    hasMovedRef.current = false;
+    startXRef.current = e.clientX;
+    scrollLeftRef.current = el.scrollLeft;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDownRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const dx = e.clientX - startXRef.current;
+    if (Math.abs(dx) > 4) {
+      hasMovedRef.current = true;
+    }
+    el.scrollLeft = scrollLeftRef.current - dx;
+    updateScrollButtons();
+  };
+
+  const handleMouseUp = () => {
+    isDownRef.current = false;
+  };
+
+  const handleClickCapture = (e: React.MouseEvent) => {
+    if (hasMovedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      hasMovedRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -97,10 +116,15 @@ export function Row({ title, items, href }: { title: string; items: ShikiAnime[]
       </div>
       <div
         ref={scrollRef}
-        className="no-scrollbar grid auto-cols-[minmax(150px,1fr)] grid-flow-col gap-4 overflow-x-auto pb-4 scroll-smooth md:auto-cols-[minmax(170px,1fr)] lg:auto-cols-[minmax(185px,1fr)]"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClickCapture={handleClickCapture}
+        className="no-scrollbar grid auto-cols-[minmax(150px,1fr)] grid-flow-col gap-4 overflow-x-auto pb-4 select-none cursor-grab active:cursor-grabbing md:auto-cols-[minmax(170px,1fr)] lg:auto-cols-[minmax(185px,1fr)]"
       >
         {filteredItems.map((a) => (
-          <div key={a.id}>
+          <div key={a.id} draggable={false}>
             <PosterCard anime={a} />
           </div>
         ))}

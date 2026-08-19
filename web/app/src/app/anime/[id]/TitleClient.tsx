@@ -96,26 +96,6 @@ export function TitleClient({
       .catch(() => setRelatedList([]));
   }, [id]);
 
-  // Horizontal mouse wheel scrolling for Порядок просмотра
-  useEffect(() => {
-    const el = relatedScrollRef.current;
-    if (!el) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0) {
-        const maxScroll = el.scrollWidth - el.clientWidth;
-        if (maxScroll > 0) {
-          if ((e.deltaY > 0 && el.scrollLeft < maxScroll - 1) || (e.deltaY < 0 && el.scrollLeft > 1)) {
-            e.preventDefault();
-            el.scrollLeft += e.deltaY;
-            updateScrollButtons();
-          }
-        }
-      }
-    };
-    el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
-  }, [relatedList]);
-
   // Scroll and resize listener for buttons
   useEffect(() => {
     const el = relatedScrollRef.current;
@@ -154,7 +134,7 @@ export function TitleClient({
     if (!el) return;
     isDraggingRef.current = true;
     hasMovedRef.current = false;
-    dragStartXRef.current = e.pageX - el.offsetLeft;
+    dragStartXRef.current = e.clientX;
     scrollStartLeftRef.current = el.scrollLeft;
   };
 
@@ -162,13 +142,11 @@ export function TitleClient({
     if (!isDraggingRef.current) return;
     const el = relatedScrollRef.current;
     if (!el) return;
-    e.preventDefault();
-    const x = e.pageX - el.offsetLeft;
-    const walk = (x - dragStartXRef.current) * 1.3;
-    if (Math.abs(x - dragStartXRef.current) > 5) {
+    const dx = e.clientX - dragStartXRef.current;
+    if (Math.abs(dx) > 4) {
       hasMovedRef.current = true;
     }
-    el.scrollLeft = scrollStartLeftRef.current - walk;
+    el.scrollLeft = scrollStartLeftRef.current - dx;
     updateScrollButtons();
   };
 
@@ -176,9 +154,10 @@ export function TitleClient({
     isDraggingRef.current = false;
   };
 
-  const handleCardClick = (e: React.MouseEvent) => {
+  const handleClickCapture = (e: React.MouseEvent) => {
     if (hasMovedRef.current) {
       e.preventDefault();
+      e.stopPropagation();
       hasMovedRef.current = false;
     }
   };
@@ -327,7 +306,8 @@ export function TitleClient({
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
-              className="no-scrollbar -mx-1 flex w-full max-w-full gap-2.5 sm:gap-3 overflow-x-auto px-1 pb-1 scroll-smooth select-none cursor-grab active:cursor-grabbing"
+              onClickCapture={handleClickCapture}
+              className="no-scrollbar -mx-1 flex w-full max-w-full gap-2.5 sm:gap-3 overflow-x-auto px-1 pb-1 select-none cursor-grab active:cursor-grabbing"
             >
               {relatedList.map((node, i) => {
                 const a = node.anime!;
@@ -339,7 +319,7 @@ export function TitleClient({
                     key={`${a.id}-${i}`}
                     ref={current ? currentRelatedRef : null}
                     href={`/anime/${a.id}`}
-                    onClick={handleCardClick}
+                    draggable={false}
                     className={`group flex w-[115px] sm:w-[125px] shrink-0 flex-col rounded-xl border transition ${
                       current
                         ? "border-primary bg-primary/15 ring-2 ring-primary/40 ring-offset-2 ring-offset-bg"
@@ -363,6 +343,7 @@ export function TitleClient({
                           posterOriginal(a.id, a.image)
                         }
                         alt={a.russian || a.name}
+                        draggable={false}
                         className="h-full w-full object-cover transition group-hover:scale-105"
                       />
                     </div>

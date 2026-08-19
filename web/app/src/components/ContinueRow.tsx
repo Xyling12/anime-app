@@ -15,6 +15,11 @@ export function ContinueRow() {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  const isDownRef = useRef(false);
+  const startXRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const hasMovedRef = useRef(false);
+
   const updateScrollButtons = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -30,24 +35,38 @@ export function ContinueRow() {
     setTimeout(updateScrollButtons, 250);
   };
 
-  useEffect(() => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const el = scrollRef.current;
     if (!el) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0) {
-        const maxScroll = el.scrollWidth - el.clientWidth;
-        if (maxScroll > 0) {
-          if ((e.deltaY > 0 && el.scrollLeft < maxScroll - 1) || (e.deltaY < 0 && el.scrollLeft > 1)) {
-            e.preventDefault();
-            el.scrollLeft += e.deltaY;
-            updateScrollButtons();
-          }
-        }
-      }
-    };
-    el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
-  }, [rows]);
+    isDownRef.current = true;
+    hasMovedRef.current = false;
+    startXRef.current = e.clientX;
+    scrollLeftRef.current = el.scrollLeft;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDownRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const dx = e.clientX - startXRef.current;
+    if (Math.abs(dx) > 4) {
+      hasMovedRef.current = true;
+    }
+    el.scrollLeft = scrollLeftRef.current - dx;
+    updateScrollButtons();
+  };
+
+  const handleMouseUp = () => {
+    isDownRef.current = false;
+  };
+
+  const handleClickCapture = (e: React.MouseEvent) => {
+    if (hasMovedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      hasMovedRef.current = false;
+    }
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -116,11 +135,30 @@ export function ContinueRow() {
           </button>
         </div>
       </div>
-      <div ref={scrollRef} className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1 scroll-smooth md:px-0">
+      <div
+        ref={scrollRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onClickCapture={handleClickCapture}
+        className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1 select-none cursor-grab active:cursor-grabbing md:px-0"
+      >
         {rows.map((r) => (
-          <Link key={r.id} href={`/watch/${r.id}/${r.ep}`} className="group relative shrink-0" style={{ width: 130 }}>
+          <Link
+            key={r.id}
+            href={`/watch/${r.id}/${r.ep}`}
+            draggable={false}
+            className="group relative shrink-0"
+            style={{ width: 130 }}
+          >
             <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-surface-2">
-              <PosterImage src={r.img} alt={r.title} className="h-full w-full object-cover" />
+              <PosterImage
+                src={r.img}
+                alt={r.title}
+                draggable={false}
+                className="h-full w-full object-cover"
+              />
               <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
                 Серия {r.ep}
               </span>

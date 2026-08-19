@@ -9,12 +9,13 @@ export function PosterCard({ anime }: { anime: ShikiAnime }) {
   const title = anime.russian?.trim() || anime.name;
   const kind = anime.kind ? anime.kind.toUpperCase() : null;
   return (
-    <Link href={`/anime/${anime.id}`} className="card-hover group block min-w-0">
+    <Link href={`/anime/${anime.id}`} draggable={false} className="card-hover group block min-w-0 select-none">
       <div className="relative aspect-[2/3] overflow-hidden rounded-[18px] border border-white/[.06] bg-surface-2 shadow-lg">
         <PosterImage
           src={posterOriginal(anime.id, anime.image)}
           alt={title}
           loading="lazy"
+          draggable={false}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
         />
         {/* градиент снизу */}
