@@ -19,11 +19,17 @@ export interface ShikiAnime {
   episodes_aired?: number;
   kind?: string | null;
   status?: string | null;
+  aired_on?: string | null;
+  released_on?: string | null;
 }
 
 /** Детальная карточка тайтла. */
 export interface ShikiAnimeDetails extends ShikiAnime {
   description?: string | null;
+  english?: string[] | null;
+  japanese?: string[] | null;
+  synonyms?: string[] | null;
+  license_name_ru?: string | null;
   genres?: { id: number; russian?: string; name: string }[];
   aired_on?: string | null;
 }
@@ -45,36 +51,35 @@ export interface AnilibriaUpdate {
   poster?: string | null;
 }
 
+/** Связанный тайтл из `/api/animes/{id}/related`. `anime` может быть null (для манги/ранобэ). */
+export interface ShikiRelatedNode {
+  relation: string;
+  relation_russian?: string;
+  anime?: ShikiAnime | null;
+}
+
 /** Аккаунт (ответ /auth/me). */
 export interface Me {
   nick?: string | null;
   email?: string | null;
-  avatar: number; // -1 = кастомная аватарка
-  linked: string[];
-  admin: boolean;
-  emailVerified: boolean;
+  avatar?: number;
+  created?: number;
 }
 
-/** Сообщение общего чата / комментарий. */
+/** Сообщение чата / комментарий. */
 export interface ChatMessage {
   id: number;
   nick: string;
   avatar: number;
   text: string;
-  at: number;
-  replyTo?: { id: number; nick: string; text: string } | null;
+  created: number;
   spoiler?: boolean;
 }
 
-/** Краткий рейтинг AniPulse (бейджи ♥ на постерах). */
-export interface RatingBrief {
-  avg?: number | null;
-  count: number;
-}
-
-/** Манифест обновления приложения (для баннера «доступна новая версия Android-приложения»). */
-export interface AppVersion {
-  versionCode: number;
-  versionName: string;
-  url: string;
+/** Озвучка Kodik/AniLibria для плеера. */
+export interface Dub {
+  title: string;
+  type: string;
+  link: string;
+  episodes?: number;
 }

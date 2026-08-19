@@ -50,14 +50,33 @@ export const api = {
 };
 
 /** Постер тайтла: preview для сеток (лёгкий), original — для крупных экранов. */
-export function posterPreview(id: number, image?: { preview?: string; original?: string } | null): string {
-  // Shikimori image paths are not API routes and return 404 when appended to
-  // /alapi/shikimori. The gateway poster endpoint resolves and caches the
-  // actual image server-side, which also avoids browser-side TLS/hotlink issues.
-  void image;
+export function posterPreview(
+  id: number,
+  image?: { preview?: string; original?: string; x96?: string; x48?: string } | null,
+): string {
+  const path = image?.preview || image?.original || image?.x96;
+  if (path) {
+    const clean = path.startsWith("/") ? path.slice(1) : path;
+    return `${GATEWAY}shikimori/${clean}`;
+  }
   return `${GATEWAY}poster/${id}`;
 }
-export function posterOriginal(id: number, image?: { preview?: string; original?: string } | null): string {
-  void image;
+
+export function posterOriginal(
+  id: number,
+  image?: { preview?: string; original?: string } | null,
+): string {
+  const path = image?.original || image?.preview;
+  if (path) {
+    const clean = path.startsWith("/") ? path.slice(1) : path;
+    return `${GATEWAY}shikimori/${clean}`;
+  }
   return `${GATEWAY}poster/${id}`;
+}
+
+/** Прямой URL постера с shikimori.io — используем для related, где gateway-кеш ещё холодный. */
+export function shikimoriImage(path?: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  return `https://shikimori.io${path.startsWith("/") ? "" : "/"}${path}`;
 }
