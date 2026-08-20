@@ -87,6 +87,8 @@ test('byte LRU enforces both memory and entry limits and prunes expiry', () => {
 test('public proxy permits only the routes used by the Android client', () => {
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes?limit=30')?.kind, 'json');
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes/1/similar')?.kind, 'json');
+  assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes/1/related')?.kind, 'json');
+  assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes/1/franchise')?.kind, 'json');
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/system/animes/preview/1.jpg')?.kind, 'image');
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/system/animes/preview/1.jpg?1711973439')?.kind, 'image');
   assert.equal(publicProxyPolicy('anilibria', 'https://anilibria.top/api/v1/anime/releases/1')?.kind, 'json');

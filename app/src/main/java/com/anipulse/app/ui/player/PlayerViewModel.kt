@@ -168,6 +168,36 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Принудительно отметить текущую серию как просмотренную.
+     * Нужно для кнопки «Следующая серия» на эндинге: пользователь жмёт её
+     * в районе 80–95% видео, и без этого серия остаётся «недосмотренной»
+     * (галка не зелёная, в «Продолжить» снова предлагают её).
+     */
+    fun markWatched(positionMs: Long = 0L, durationMs: Long = 0L) {
+        if (animeId == 0L) return
+        val s = _state.value
+        val safePos = if (durationMs > 0) positionMs.coerceAtLeast(0L) else 0L
+        val safeDur = if (durationMs > 0) durationMs else 0L
+        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
+            runCatching {
+                val value = EpisodeProgress(
+                    animeId = animeId,
+                    episode = s.episode,
+                    positionMs = safeDur.takeIf { it > 0 } ?: safePos,
+                    durationMs = safeDur,
+                    watched = true,
+                    dubId = s.selectedDub?.id,
+                    title = session.title,
+                    posterId = session.posterId,
+                    totalEpisodes = session.totalEpisodes,
+                )
+                progressDao.upsert(value)
+                syncRepository.pushProgress(value)
+            }
+        }
+    }
+
     fun selectDub(dub: Dub) {
         if (dub.id == _state.value.selectedDub?.id) return
         _state.update { it.copy(selectedDub = dub) }

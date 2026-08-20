@@ -9,6 +9,7 @@ import com.anipulse.app.data.db.Favorite
 import com.anipulse.app.data.db.FavoriteDao
 import com.anipulse.app.data.db.ProgressDao
 import com.anipulse.app.data.shikimori.ShikiAnimeDetails
+import com.anipulse.app.data.shikimori.ShikiRelatedNode
 import com.anipulse.app.data.video.Dub
 import com.anipulse.app.data.video.PlaybackSession
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import org.json.JSONObject
+import retrofit2.HttpException
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -34,11 +37,15 @@ data class TitleState(
     val ratingAvg: Double? = null,
     val ratingCount: Int = 0,
     val myRating: Int? = null,
+    val ratingSending: Boolean = false,        // идёт запрос — игнор повторных нажатий
+    val ratingError: String? = null,          // последняя ошибка (null = всё ок)
     val comments: List<com.anipulse.app.data.ChatMessage> = emptyList(),
     val isLoggedIn: Boolean = false,
     val commentSending: Boolean = false,
     val myNick: String? = null,
     val episodeNotifyEnabled: Boolean = false,
+    // Связанные тайтлы (sequel/prequel/side_story/…) — порядок просмотра.
+    val related: List<ShikiRelatedNode> = emptyList(),
 )
 
 @HiltViewModel
@@ -92,17 +99,67 @@ class TitleViewModel @Inject constructor(
     }
 
     fun rate(score: Int) {
-        val b = bearer() ?: return
+        // Не залогинен — покажем почему кнопка не сработала (раньше тихо возвращались).
+        val b = bearer()
+        if (b == null) {
+            _state.update { it.copy(ratingError = "Войдите в Профиле, чтобы оценить") }
+            android.util.Log.w("TitleVM", "rate($score) aborted: no auth token")
+            return
+        }
+        // Не спамим запросами, пока предыдущий в полёте.
+        if (_state.value.ratingSending) return
+        // Запоминаем прежнюю оценку — нужна для отката при ошибке.
+        val prevRating = _state.value.myRating
+        // Toggle: повторный клик по текущей оценке = удалить.
+        val isToggle = prevRating == score
+        // Оптимистичное обновление UI: подсветить сразу, до ответа сервера.
+        _state.update { it.copy(ratingSending = true, ratingError = null, myRating = if (isToggle) null else score) }
         viewModelScope.launch {
-            runCatching {
-                if (_state.value.myRating == score) gateway.deleteRating(b, animeId)
+            val result = runCatching {
+                if (isToggle) gateway.deleteRating(b, animeId)
                 else gateway.sendRating(b, com.anipulse.app.data.RatingRequest(animeId, score))
             }
+            result
                 .onSuccess { r ->
-                    _state.update { it.copy(ratingAvg = r.avg, ratingCount = r.count, myRating = r.my) }
+                    if (!r.error.isNullOrBlank()) {
+                        // Сервер вернул 200, но в error — откатываем UI.
+                        android.util.Log.w("TitleVM", "rate($score) server error: ${r.error}")
+                        _state.update {
+                            it.copy(ratingSending = false, ratingError = r.error, myRating = prevRating)
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                ratingSending = false,
+                                ratingError = null,
+                                ratingAvg = r.avg,
+                                ratingCount = r.count,
+                                myRating = r.my,
+                            )
+                        }
+                    }
+                }
+                .onFailure { e ->
+                    android.util.Log.e("TitleVM", "rate($score) failed", e)
+                    // Извлекаем тело ответа сервера ({"error":"Подтвердите почту"}),
+                    // а не сухой "HTTP 403" от Retrofit.
+                    val serverMsg = (e as? HttpException)?.response()?.errorBody()?.string()
+                        ?.let { runCatching { JSONObject(it).optString("error", "") }.getOrNull() }
+                        ?.takeIf { it.isNotBlank() }
+                    val friendly = serverMsg ?: (e.message ?: "Не удалось поставить оценку")
+                    // Откатываем оптимистичное обновление: возвращаем прежнюю оценку.
+                    _state.update {
+                        it.copy(
+                            ratingSending = false,
+                            ratingError = friendly,
+                            myRating = prevRating,
+                        )
+                    }
                 }
         }
     }
+
+    fun clearRatingError() = _state.update { it.copy(ratingError = null) }
 
     fun deleteComment(id: Long) {
         val b = bearer() ?: return
@@ -198,11 +255,19 @@ class TitleViewModel @Inject constructor(
     fun load() {
         _state.update { it.copy(isLoading = true, loadingDubs = true, error = null) }
         viewModelScope.launch {
-            val details = runCatching { repo.details(animeId) }
+            val detailsDeferred = async { runCatching { repo.details(animeId) } }
+            val relatedDeferred = async { runCatching { repo.related(animeId) }.getOrDefault(emptyList()) }
+            val details = detailsDeferred.await()
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Ошибка загрузки") } }
                 .getOrNull() ?: return@launch
 
             _state.update { it.copy(details = details, isLoading = false) }
+
+            // Связанные тайтлы могут догрузиться чуть позже — обновим стейт, как только будет готово.
+            val related = relatedDeferred.await()
+            if (related.isNotEmpty()) {
+                _state.update { it.copy(related = related) }
+            }
 
             val dubs = runCatching { repo.dubs(details) }.getOrDefault(emptyList())
             // Озвучка, которой пользователь уже смотрел этот тайтл, — первая (не листать).

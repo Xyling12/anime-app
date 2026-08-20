@@ -21,17 +21,20 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +42,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,17 +65,67 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.shikimori.posterOf
+import com.anipulse.app.data.shikimori.posterPreviewOf
+
+/** Состояние фильтра списка серий. */
+private enum class EpisodeFilter(val label: String) {
+    ALL("Все"),
+    UNWATCHED("Не просм."),
+    STARTED("Начатые"),
+    WATCHED("Просм."),
+}
+
+/**
+ * Разбирает запрос пользователя в набор номеров серий.
+ * Поддерживает: «12» (одна серия), «12-15» или «12..15» (диапазон),
+ * «12, 15, 20» (список), пустую строку (все серии).
+ * Невалидные токены игнорируются.
+ */
+private fun parseEpisodeQuery(
+    raw: String,
+    maxEp: Int,
+): List<Int> {
+    val text = raw.trim()
+    if (text.isEmpty()) return (1..maxEp).toList()
+    val out = sortedSetOf<Int>()
+    text.split(',', ' ', '\n', '\t').forEach { token ->
+        val t = token.trim()
+        if (t.isEmpty()) return@forEach
+        val dash = t.indexOfAny(charArrayOf('-', '—'))
+        if (dash > 0) {
+            // Диапазон: «12-15» или «12..15» (вторая '.' съедается removePrefix).
+            val a = t.substring(0, dash).trim().toIntOrNull()
+            val b = t.substring(dash + 1).trim().removePrefix(".").trim().toIntOrNull()
+            if (a != null && b != null) {
+                val (lo, hi) = if (a <= b) a to b else b to a
+                for (n in lo..hi) if (n in 1..maxEp) out += n
+            }
+        } else if (dash == 0) {
+            // «-5» → от 1 до 5
+            val b = t.substring(1).trim().toIntOrNull()
+            if (b != null) for (n in 1..b) if (n in 1..maxEp) out += n
+        } else {
+            val n = t.toIntOrNull()
+            if (n != null && n in 1..maxEp) out += n
+        }
+    }
+    return out.toList()
+}
 
 @Composable
 fun TitleScreen(
     onBack: () -> Unit,
     onPlay: () -> Unit,
+    onOpenTitle: (Long) -> Unit = {},
     onOpenDm: (String) -> Unit = {},
     viewModel: TitleViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     var commentInput by remember { mutableStateOf("") }
     var commentProfileNick by remember { mutableStateOf<String?>(null) }
+    // Поиск/фильтр серий. Запрос («12», «12-15», «12..24», «12, 20») и фильтр по статусу суммируются.
+    var episodeQuery by remember { mutableStateOf("") }
+    var episodeFilter by remember { mutableStateOf(EpisodeFilter.ALL) }
     commentProfileNick?.let { nick ->
         com.anipulse.app.ui.common.UserCardSheet(
             nick = nick,
@@ -322,7 +377,7 @@ fun TitleScreen(
                                             if (selected) Color(0x55FF4D8D)
                                             else MaterialTheme.colorScheme.surfaceVariant
                                         )
-                                        .clickable { viewModel.rate(score) },
+                                        .clickable(enabled = !state.ratingSending) { viewModel.rate(score) },
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
@@ -333,6 +388,18 @@ fun TitleScreen(
                                     )
                                 }
                             }
+                        }
+                        // Сообщение об ошибке оценки (если есть). Покажем сразу под кнопками.
+                        state.ratingError?.let { err ->
+                            Text(
+                                err,
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .clickable { viewModel.clearRatingError() },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
                         }
                     } else {
                         Text(
@@ -377,6 +444,100 @@ fun TitleScreen(
                     }
                 }
 
+                // «Порядок просмотра» — если у тайтла есть связанные (sequel/prequel/side_story/…).
+                if (state.related.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Порядок просмотра",
+                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    item {
+                        val currentId = viewModel.animeId
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            itemsIndexed(state.related, key = { _, n -> n.anime?.id ?: 0 }) { idx, node ->
+                                val a = node.anime ?: return@itemsIndexed
+                                val isCurrent = a.id == currentId
+                                Column(
+                                    Modifier
+                                        .width(118.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isCurrent) Color(0x33FF4D8D)
+                                            else MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        .clickable(enabled = !isCurrent) { onOpenTitle(a.id) }
+                                        .padding(8.dp),
+                                ) {
+                                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .height(160.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF15151F)),
+                                    ) {
+                                        val url = posterPreviewOf(a.id, a.image)
+                                        AsyncImage(
+                                            model = coil.request.ImageRequest.Builder(ctx)
+                                                .data(url)
+                                                .crossfade(true)
+                                                .build(),
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                        )
+                                        // Порядковый номер (по году выхода)
+                                        Box(
+                                            Modifier
+                                                .padding(4.dp)
+                                                .background(Color(0xCC000000), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        ) {
+                                            Text(
+                                                "#${idx + 1}",
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        a.russian?.ifBlank { null } ?: a.name,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        listOfNotNull(
+                                            a.airedOn?.take(4),
+                                            node.relationLabel().takeIf { it.isNotEmpty() && !isCurrent },
+                                        ).joinToString(" · "),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (isCurrent) {
+                                        Text(
+                                            "Этот тайтл",
+                                            color = Color(0xFFFF4D8D),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (state.dubs.isNotEmpty()) {
                     item {
                         Text(
@@ -385,61 +546,132 @@ fun TitleScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
-                    }
-                    // Компактная сетка номеров серий: зелёная галочка = просмотрено,
-                    // розовая рамка = начата (недосмотрена), меньше листать.
-                    items((1..viewModel.episodeCount()).chunked(5)) { rowEps ->
+                        // Поиск по сериям. Примеры: «12», «12-15», «12, 20», «1..24».
+                        // Пусто — показываем все. Запрос и фильтр по статусу суммируются.
+                        OutlinedTextField(
+                            value = episodeQuery,
+                            onValueChange = { episodeQuery = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            placeholder = { Text("Поиск серии: 12, 12-15, 1..24") },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (episodeQuery.isNotEmpty()) {
+                                    IconButton(onClick = { episodeQuery = "" }) {
+                                        Icon(Icons.Filled.Close, contentDescription = "Очистить")
+                                    }
+                                }
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = RoundedCornerShape(20.dp),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color(0xFF343442),
+                            ),
+                        )
+                        // Чипы фильтра по статусу
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            rowEps.forEach { ep ->
-                                val prog = state.progress[ep]
-                                val watched = prog?.watched == true
-                                val started = prog?.takeIf { !it.watched && it.positionMs > 1000 } != null
-                                Box(
-                                    Modifier
-                                        .weight(1f)
-                                        .height(46.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            when {
-                                                started -> Color(0x33FF4D8D)
-                                                watched -> Color(0x2266BB6A)
-                                                else -> MaterialTheme.colorScheme.surfaceVariant
-                                            }
-                                        )
-                                        .clickable {
-                                            if (started) resumeDialogEp = ep
-                                            else { viewModel.prepareSession(ep, startOver = true); onPlay() }
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            "$ep",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.Medium,
-                                            color = when {
-                                                started -> Color(0xFFFF4D8D)
-                                                watched -> Color(0xFF66BB6A)
-                                                else -> MaterialTheme.colorScheme.onSurface
-                                            },
-                                        )
-                                        if (watched) {
-                                            Spacer(Modifier.width(3.dp))
-                                            Icon(
-                                                Icons.Filled.CheckCircle,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(13.dp),
-                                                tint = Color(0xFF66BB6A),
+                            EpisodeFilter.values().forEach { f ->
+                                FilterChip(
+                                    selected = episodeFilter == f,
+                                    onClick = { episodeFilter = if (episodeFilter == f) EpisodeFilter.ALL else f },
+                                    label = { Text(f.label, maxLines = 1, softWrap = false) },
+                                )
+                            }
+                        }
+                    }
+                    // Сначала фильтруем по статусу, потом по поисковому запросу.
+                    val total = viewModel.episodeCount()
+                    val byStatus: List<Int> = when (episodeFilter) {
+                        EpisodeFilter.ALL -> (1..total).toList()
+                        EpisodeFilter.WATCHED -> state.progress.filterValues { it.watched }.keys.sorted()
+                        EpisodeFilter.UNWATCHED -> (1..total).filter { state.progress[it]?.watched != true }
+                        EpisodeFilter.STARTED -> state.progress
+                            .filterValues { !it.watched && it.positionMs > 1000 }
+                            .keys.sorted()
+                    }
+                    val visible: List<Int> = if (episodeQuery.isBlank()) byStatus else {
+                        val wanted = parseEpisodeQuery(episodeQuery, total).toSet()
+                        byStatus.filter { it in wanted }
+                    }
+                    if (visible.isEmpty()) {
+                        item {
+                            Text(
+                                "Серий не найдено",
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "Показано ${visible.size} из $total",
+                                Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(visible.chunked(5)) { rowEps ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                rowEps.forEach { ep ->
+                                    val prog = state.progress[ep]
+                                    val watched = prog?.watched == true
+                                    val started = prog?.takeIf { !it.watched && it.positionMs > 1000 } != null
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                when {
+                                                    started -> Color(0x33FF4D8D)
+                                                    watched -> Color(0x2266BB6A)
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                                }
                                             )
+                                            .clickable {
+                                                if (started) resumeDialogEp = ep
+                                                else { viewModel.prepareSession(ep, startOver = true); onPlay() }
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                "$ep",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium,
+                                                color = when {
+                                                    started -> Color(0xFFFF4D8D)
+                                                    watched -> Color(0xFF66BB6A)
+                                                    else -> MaterialTheme.colorScheme.onSurface
+                                                },
+                                            )
+                                            if (watched) {
+                                                Spacer(Modifier.width(3.dp))
+                                                Icon(
+                                                    Icons.Filled.CheckCircle,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(13.dp),
+                                                    tint = Color(0xFF66BB6A),
+                                                )
+                                            }
                                         }
                                     }
                                 }
+                                // добивка пустыми ячейками до 5 колонок
+                                repeat(5 - rowEps.size) { Spacer(Modifier.weight(1f)) }
                             }
-                            // добивка пустыми ячейками до 5 колонок
-                            repeat(5 - rowEps.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 } // End of if (state.dubs.isNotEmpty())

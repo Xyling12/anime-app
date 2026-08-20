@@ -2,6 +2,7 @@ package com.anipulse.app.data
 
 import com.anipulse.app.data.shikimori.ShikiAnime
 import com.anipulse.app.data.shikimori.ShikiAnimeDetails
+import com.anipulse.app.data.shikimori.ShikiRelatedNode
 import com.anipulse.app.data.shikimori.ShikimoriApi
 import com.anipulse.app.data.video.Dub
 import com.anipulse.app.data.video.EpisodeStream
@@ -32,6 +33,16 @@ class AnimeRepository @Inject constructor(
     /** Похожие тайтлы (Shikimori) — база рекомендаций «Для вас». */
     suspend fun similar(id: Long): List<ShikiAnime> = shikimori.similar(id)
         .filter(ContentPolicy::allowed)
+
+    /**
+     * Связанные тайтлы (sequel/prequel/side_story/…) с типом связи.
+     * Сортируем по году выхода, чтобы пользователю было понятно, в каком порядке смотреть.
+     * Anime может быть null (тогда это манга) — пропускаем.
+     */
+    suspend fun related(id: Long): List<ShikiRelatedNode> = runCatching { shikimori.related(id) }
+        .getOrDefault(emptyList())
+        .filter { it.anime != null && ContentPolicy.allowed(it.anime) }
+        .sortedBy { it.anime?.airedOn.orEmpty() }
 
     /** Календарь выхода серий (Shikimori). */
     suspend fun calendar() = shikimori.calendar()

@@ -86,3 +86,25 @@ fun posterOf(id: Long, image: ShikiImage?): String =
  */
 fun posterPreviewOf(id: Long, image: ShikiImage?): String =
     image.previewUrl() ?: (com.anipulse.app.data.Api.GATEWAY + "poster/$id")
+
+/**
+ * Связанный тайтл из `/api/animes/{id}/related`.
+ * Anime может быть null (тогда это манга) — пропускаем.
+ */
+@Serializable
+data class ShikiRelatedNode(
+    val relation: String? = null,
+    @SerialName("relation_russian") val relationRussian: String? = null,
+    val anime: ShikiAnime? = null,
+) {
+    fun relationLabel(): String = relationRussian ?: when (relation) {
+        "sequel" -> "Продолжение"
+        "prequel" -> "Предыстория"
+        "side_story" -> "Сайд-стори"
+        "parent" -> "Основа"
+        "spinoff" -> "Спин-офф"
+        "alternative" -> "Альтернатива"
+        "other", null -> ""
+        else -> relation.replaceFirstChar { it.uppercase() }
+    }
+}

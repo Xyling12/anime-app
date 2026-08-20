@@ -99,7 +99,7 @@ function publicProxyPolicy(alias, target) {
           !Number.isInteger(limit) || limit < 1 || limit > 30 || search.length > 100) return null;
       return { kind: 'json', maxBytes: 2 * 1024 * 1024 };
     }
-    if ((/^\/api\/animes\/\d+(?:\/similar)?$/.test(path) || path === '/api/genres') && !url.search) {
+    if ((/^\/api\/animes\/\d+(?:\/similar|\/related|\/franchise)?$/.test(path) || path === '/api/genres') && !url.search) {
       return { kind: 'json', maxBytes: 2 * 1024 * 1024 };
     }
     if (path === '/api/calendar' && onlyQueryParams(url, new Set(['censored']))) {

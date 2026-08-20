@@ -28,6 +28,14 @@ interface ShikimoriApi {
     @GET("api/animes/{id}/similar")
     suspend fun similar(@Path("id") id: Long): List<ShikiAnime>
 
+    /**
+     * Связанные тайтлы (sequel/prequel/side_story/…) с типом связи.
+     * franchise-endpoint отдаёт только граф связей (`links`) без `order` —
+     * он неудобен, поэтому используем related и сортируем по году выхода.
+     */
+    @GET("api/animes/{id}/related")
+    suspend fun related(@Path("id") id: Long): List<ShikiRelatedNode>
+
     @GET("api/calendar")
     suspend fun calendar(@Query("censored") censored: Boolean = true): List<ShikiCalendarEntry>
 }

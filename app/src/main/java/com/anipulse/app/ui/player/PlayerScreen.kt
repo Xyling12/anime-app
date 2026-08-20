@@ -284,15 +284,21 @@ private fun NativePlayer(
                 isPlaying = exo.isPlaying
                 if (++ticks % 10 == 0 && exo.isPlaying) viewModel.saveProgress(positionMs, durationMs)
                 val sec = positionMs / 1000
-                // Авто-пропуск повтора (в самом начале серии)
+                // Авто-пропуск повтора (в самом начале серии). Прыгаем на начало опенинга
+                // (если есть таймкоды) или на 80с — иначе при «текущая + 80_000» улетим за опенинг.
+                val opForRecap = state.stream?.opening
+                val openingStartSec = opForRecap?.start?.toLong()
                 if (state.autoSkipRecap && !recapSkipped && sec in 3..8 && durationMs > 200_000) {
-                    exo.seekTo(exo.currentPosition + 80_000); recapSkipped = true
+                    exo.seekTo(openingStartSec?.times(1000L) ?: 80_000L); recapSkipped = true
                 }
-                // Авто-пропуск опенинга (по таймкодам или на первых 2 мин)
+                // Авто-пропуск опенинга. Правая граница — строго, и прыжок в фиксированную позицию.
                 if (state.autoSkipOpening && !openingSkipped && durationMs > 200_000) {
                     val op = state.stream?.opening
-                    if (op != null && sec in op.start.toLong()..op.stop.toLong()) { exo.seekTo(op.stop * 1000L); openingSkipped = true }
-                    else if (op == null && sec in 5..90) { exo.seekTo(exo.currentPosition + 85_000); openingSkipped = true }
+                    if (op != null && sec >= op.start.toLong() && sec < op.stop.toLong()) {
+                        exo.seekTo(op.stop * 1000L); openingSkipped = true
+                    } else if (op == null && sec in 5..85) {
+                        exo.seekTo(90_000L); openingSkipped = true
+                    }
                 }
                 delay(500)
             }
@@ -526,17 +532,20 @@ private fun NativePlayer(
             }
         }
 
-        // Кнопка «Пропустить опенинг»: по таймкодам (AniLibria) либо на первых 2 мин (+85с) для любого источника.
+        // Кнопка «Пропустить опенинг»: по таймкодам (AniLibria) либо запасной прыжок ~на 90с для любого источника.
+        // Правая граница диапазона — строго (until), иначе кнопка не пропадает после seekTo на op.stop.
+        // Прыжок делаем в фиксированную позицию (op.stop*1000 или 90_000), а не «текущая + N»:
+        // иначе при втором тике после нажатия можно улететь за опенинг.
         run {
             val op = state.stream?.opening
             val sec = positionMs / 1000
-            val showByTimecode = op != null && sec in op.start.toLong()..op.stop.toLong()
-            val showGeneric = op == null && sec in 3L..120L && durationMs > 200_000
-            if (showByTimecode || showGeneric) {
+            val showByTimecode = op != null && sec >= op.start.toLong() && sec < op.stop.toLong()
+            val showGeneric = op == null && sec in 5L..80L && durationMs > 200_000
+            if (!openingSkipped && (showByTimecode || showGeneric)) {
                 TextButton(
                     onClick = {
-                        if (op != null) exo.seekTo(op.stop * 1000L)
-                        else exo.seekTo(exo.currentPosition + 85_000)
+                        if (op != null) exo.seekTo(op.stop * 1000L) else exo.seekTo(90_000L)
+                        openingSkipped = true
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -547,11 +556,16 @@ private fun NativePlayer(
         }
 
         // Кнопка «Следующая серия» на эндинге (по таймкодам AniSkip)
+        // Перед переходом помечаем текущую серию просмотренной — иначе при эндинге ~80–95%
+        // видео галочка не загорается и тайтл снова предлагают «продолжить».
         state.stream?.ending?.let { ed ->
             val sec = positionMs / 1000
             if (sec >= ed.start && viewModel.hasNext()) {
                 TextButton(
-                    onClick = { viewModel.nextEpisode() },
+                    onClick = {
+                        viewModel.markWatched(positionMs, durationMs)
+                        viewModel.nextEpisode()
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 72.dp, end = 16.dp)
@@ -572,13 +586,19 @@ private fun NativePlayer(
         }
 
         // Кнопка «Пропустить повтор» (в начале серии)
+        // Прыгаем в начало опенинга (если есть таймкоды) либо на фиксированные 80с.
+        // Не прибавляем «текущая + 80_000» — иначе улетим за опенинг при втором тике.
         run {
             val sec = positionMs / 1000
-            val openingStart = state.stream?.opening?.start?.toLong()
+            val op = state.stream?.opening
+            val openingStart = op?.start?.toLong()
             val beforeOpening = openingStart == null || sec < openingStart
-            if (sec in 3L..15L && beforeOpening && durationMs > 200_000) {
+            if (!recapSkipped && sec in 3L..15L && beforeOpening && durationMs > 200_000) {
                 TextButton(
-                    onClick = { exo.seekTo(exo.currentPosition + 80_000) },
+                    onClick = {
+                        exo.seekTo(openingStart?.times(1000L) ?: 80_000L)
+                        recapSkipped = true
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         // Вертикальный стек: следующая серия 72dp, опенинг 128dp, повтор 184dp.
