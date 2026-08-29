@@ -143,6 +143,29 @@ function fetchFollow(urlStr, {
   });
 }
 
+// Повтор для JSON-апстримов, отвечающих 5xx. Появился из-за api.aniskip.com:
+// с сервера он отдаёт 500 примерно через раз (500/200/500/200 подряд) — похоже,
+// за балансировщиком лежит один из бэкендов. Клиент делал один запрос, ловил
+// ошибку, и пропуск опенинга молча не работал у половины зрителей.
+//
+// Только для kind === 'json': ответы маленькие, запросы идемпотентные. Картинки
+// сюда не попадают намеренно — повторы на них дали бы шторм трафика.
+// 4xx не повторяем: это ответ по существу, а не сбой.
+async function fetchJsonUpstream(target, options, retries = 2) {
+  let last;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+    try {
+      last = await fetchFollow(target, options);
+    } catch (error) {
+      if (attempt === retries) throw error;
+      continue;
+    }
+    if (last.status < 500 || last.status > 599) return last;
+  }
+  return last;
+}
+
 // Расшифровка src Kodik: Caesar-сдвиг (авто-подбор 1..25) + base64.
 function kodikDecode(src) {
   for (let s = 1; s <= 25; s++) {
@@ -2541,7 +2564,9 @@ async function route(req, res) {
         res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': '2' });
         return res.end(JSON.stringify({ error: 'proxy is busy' }));
       }
-      pending = fetchFollow(target, { maxBytes: policy.maxBytes });
+      pending = policy.kind === 'json'
+        ? fetchJsonUpstream(target, { maxBytes: policy.maxBytes })
+        : fetchFollow(target, { maxBytes: policy.maxBytes });
       proxyInflight.set(target, pending);
       pending.then(() => proxyInflight.delete(target), () => proxyInflight.delete(target));
     }
