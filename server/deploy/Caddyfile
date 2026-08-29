@@ -77,12 +77,16 @@ anipulsetv.ru {
 	import security_headers
 	header {
 		X-Frame-Options "DENY"
+		# connect-src расширен до схемы https: hls.js тянет m3u8 и сегменты через
+		# XHR, а Kodik раздаёт видео с меняющегося пула CDN (sky.solodcdn.com и
+		# другие), перечислить которые заранее нельзя. С прежним списком плеер
+		# висел на бесконечной загрузке. http и data: по-прежнему отсекаются.
 		# 'unsafe-eval' убран 2026-08-29: проверено в браузере, что каталог,
 		# главная и плеер (hls.js, выбор озвучки, aniskip) работают без него.
 		# Тогда же добавлены wss://mc.yandex.ru (вебвизор Метрики открывает
 		# WebSocket, и он молча блокировался), kodikplayer.com (шлюз отдаёт
 		# ссылки на плеер именно туда), worker-src и object-src.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://mc.yandex.ru wss://mc.yandex.ru https://*.shikimori.one https://*.shikimori.io https://*.shikimori.me https://kodik.info; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss:; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	}
 
 	handle /.well-known/assetlinks.json {
