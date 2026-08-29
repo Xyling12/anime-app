@@ -603,4 +603,56 @@ interface GatewayApi {
         @retrofit2.http.Header("Authorization") bearer: String,
         @retrofit2.http.Body body: AvatarUploadRequest,
     ): AvatarUploadResponse
+
+    @GET("leaderboard")
+    suspend fun leaderboard(
+        @retrofit2.http.Header("Authorization") bearer: String? = null,
+    ): LeaderboardResponse
+
+    @GET("stats/me")
+    suspend fun myStats(
+        @retrofit2.http.Header("Authorization") bearer: String,
+    ): UserStatsDto
 }
+
+@Serializable
+data class LeaderboardEntry(
+    val rank: Int = 0,
+    val userId: Long = 0,
+    val nick: String = "",
+    val avatar: Int = 0,
+    val avatarCustom: Boolean = false,
+    val episodesWatched: Int = 0,
+    val watchHours: Double = 0.0,
+    val watchMinutes: Long = 0,
+    val completedTitles: Int = 0,
+    val level: Int = 1,
+    val levelTitle: String = "Новичок",
+    val badge: String = "🥉",
+)
+
+@Serializable
+data class LeaderboardResponse(
+    val leaderboard: List<LeaderboardEntry> = emptyList(),
+    val totalParticipants: Int = 0,
+    val myRank: LeaderboardEntry? = null,
+)
+
+@Serializable
+data class UserStatsDto(
+    val userId: Long = 0,
+    val nick: String = "",
+    val avatar: Int = 0,
+    val avatarCustom: Boolean = false,
+    val rank: Int = 0,
+    val totalParticipants: Int = 0,
+    val episodesWatched: Int = 0,
+    val watchMinutes: Long = 0,
+    val watchHours: Double = 0.0,
+    val completedTitles: Int = 0,
+    val level: Int = 1,
+    val levelTitle: String = "Новичок",
+    val badge: String = "🥉",
+    val nextTarget: Int? = null,
+)
+

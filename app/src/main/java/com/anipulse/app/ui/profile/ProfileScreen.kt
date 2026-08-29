@@ -1,10 +1,16 @@
 package com.anipulse.app.ui.profile
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,40 +19,43 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.PlayCircleOutline
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PlayCircleOutline
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,31 +63,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.Image
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.anipulse.app.ui.common.AVATAR_PRESETS
 import com.anipulse.app.ui.common.Avatar
 
-private val PulseGradient = Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF4D8D)))
-
 @Composable
 fun ProfileScreen(
-    isDarkTheme: Boolean,
-    onThemeToggle: () -> Unit,
-    viewModel: ProfileViewModel = hiltViewModel(),
+    isDarkTheme: Boolean = true,
+    onThemeToggle: () -> Unit = {},
+    viewModel: ProfileViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -99,13 +103,12 @@ fun ProfileScreen(
         onDispose { authContext.unregisterReceiver(receiver) }
     }
 
-    // После возврата из OAuth-браузера подтягиваем аккаунт
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.syncFromSettings()
-                viewModel.refreshMe() // привязки Яндекс/VK обновляются после возврата из браузера
+                viewModel.refreshMe()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -118,347 +121,6 @@ fun ProfileScreen(
         onThemeToggle = onThemeToggle,
         viewModel = viewModel,
     )
-    return
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 12.dp),
-    ) {
-        // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
-
-        // Диалог входа/регистрации
-        var authDialog by remember { mutableStateOf<String?>(null) } // "login" | "register" | null
-        authDialog?.let { mode ->
-            AuthDialog(
-                mode = mode,
-                busy = state.authBusy,
-                error = state.authError,
-                resetCodeSent = state.resetCodeSent,
-                onDismiss = { authDialog = null; viewModel.clearAuthError() },
-                onLogin = viewModel::login,
-                onRegister = viewModel::register,
-                onForgot = viewModel::forgotPassword,
-                onReset = viewModel::resetPassword,
-            )
-        }
-        // Закрыть диалог после успешного входа
-        LaunchedEffect(state.nick) { if (state.nick != null) authDialog = null }
-
-        // Выбор аватара: 12 пресетов + загрузка своей картинки (жмём до 256px JPEG перед отправкой)
-        var avatarDialog by remember { mutableStateOf(false) }
-        val pickCtx = androidx.compose.ui.platform.LocalContext.current
-        val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
-        ) { uri ->
-            if (uri != null) {
-                runCatching {
-                    val src = pickCtx.contentResolver.openInputStream(uri)?.use {
-                        android.graphics.BitmapFactory.decodeStream(it)
-                    } ?: return@runCatching
-                    val side = minOf(src.width, src.height)
-                    // центр-кроп в квадрат + даунскейл до 256
-                    val square = android.graphics.Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-                    val scaled = android.graphics.Bitmap.createScaledBitmap(square, 256, 256, true)
-                    val out = java.io.ByteArrayOutputStream()
-                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
-                    viewModel.uploadAvatar(out.toByteArray())
-                }
-                avatarDialog = false
-            }
-        }
-        if (avatarDialog) {
-            AlertDialog(
-                onDismissRequest = { avatarDialog = false },
-                title = { Text("Выбери аватар") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AVATAR_PRESETS.indices.chunked(4).forEach { row ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                row.forEach { id ->
-                                    Box(Modifier.clickable { viewModel.setAvatar(id); avatarDialog = false }) {
-                                        Avatar(id, 56.dp)
-                                    }
-                                }
-                            }
-                        }
-                        if (state.nick != null) {
-                            TextButton(onClick = {
-                                photoPicker.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
-                            }) { Text("📷 Загрузить свою…") }
-                        }
-                    }
-                },
-                confirmButton = { TextButton(onClick = { avatarDialog = false }) { Text("Закрыть") } },
-            )
-        }
-        state.avatarUploadError?.let {
-            Text(
-                it,
-                Modifier.padding(horizontal = 16.dp),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        // Шапка: гость или аккаунт
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.clickable { avatarDialog = true }) {
-                Avatar(state.avatarId, 76.dp, nick = state.nick, rev = state.avatarRev, accountId = state.userId)
-            }
-            Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                Text(state.nick ?: "Гость", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    state.email ?: "Просмотр и «Моё» работают без входа",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (state.nick != null) {
-                TextButton(onClick = viewModel::logout) { Text("Выйти") }
-            }
-        }
-
-        // Компактная строка статистики как в утверждённом макете.
-        val hours = state.watchTimeMs / 3_600_000
-        val minutes = state.watchTimeMs % 3_600_000 / 60_000
-        Surface(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            color = Color(0xFF15151F), shape = RoundedCornerShape(16.dp),
-        ) {
-            Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProfileStat(Modifier.weight(1f), "${state.watchedEpisodes}", "Досмотрено")
-                ProfileStat(Modifier.weight(1f), "$hours ч", "Просмотр")
-                ProfileStat(Modifier.weight(1f), "${state.startedTitles}", "Начато")
-                ProfileStat(Modifier.weight(1f), "${state.favoritesCount}", "В Моём")
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            color = Color(0xFF15151F),
-            shape = RoundedCornerShape(14.dp),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                com.anipulse.app.ui.common.AgeRatingBadge()
-                Text(
-                    "AniPulse содержит материалы для совершеннолетней аудитории",
-                    Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        // Плашка подтверждения почты (без него закрыты чат/комменты/ЛС)
-        if (state.nick != null && !state.emailVerified) {
-            var code by remember { mutableStateOf("") }
-            Spacer(Modifier.height(10.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f))
-                    .padding(14.dp),
-            ) {
-                Text(
-                    "Подтвердите почту",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Мы отправили 6-значный код на ${state.email ?: "вашу почту"}. Подтвердите адрес для защиты аккаунта и публикации комментариев.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = code,
-                        onValueChange = { code = it.filter(Char::isDigit).take(6) },
-                        modifier = Modifier.weight(1f),
-                        label = { Text("Код из письма") },
-                        singleLine = true,
-                    )
-                    TextButton(onClick = { viewModel.verifyEmail(code) }, enabled = code.length == 6) {
-                        Text("Подтвердить")
-                    }
-                }
-                Row {
-                    TextButton(onClick = viewModel::resendCode) { Text("Отправить код снова") }
-                }
-                state.verifyMessage?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-
-        // «О себе» — виден другим в карточке пользователя
-        if (state.nick != null) {
-            var bio by remember { mutableStateOf("") }
-            var bioSaved by remember { mutableStateOf(false) }
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = bio,
-                onValueChange = { bio = it.take(200); bioSaved = false },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                label = { Text("О себе (видно другим в вашей карточке)") },
-                maxLines = 3,
-                trailingIcon = {
-                    TextButton(onClick = { viewModel.saveBio(bio); bioSaved = true }, enabled = bio.isNotBlank() && !bioSaved) {
-                        Text(if (bioSaved) "✓" else "Сохранить")
-                    }
-                },
-            )
-        }
-
-        if (state.nick == null) {
-            // Аккаунт: регистрация / вход
-            Text(
-                "Аккаунт",
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = Color(0xFFFF4D8D))
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(PulseGradient)
-                    .clickable { authDialog = "register" }
-                    .padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Text("Создать аккаунт", color = Color.White, fontWeight = FontWeight.SemiBold)
-            }
-            TextButton(
-                onClick = { authDialog = "login" },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) { Text("У меня уже есть аккаунт — войти") }
-            Text(
-                "Аккаунт сохранит списки, историю просмотра, комментарии и ваш рейтинг",
-                Modifier.padding(horizontal = 16.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                "Или войти через сервис",
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "yandex", null) }, "Яндекс", badge = "Я", badgeColor = Color(0xFFFC3F1D))
-                SocialButton(Modifier.weight(1f).clickable { openOAuth(ctx, "vk", null) }, "VK", badge = "VK", badgeColor = Color(0xFF0077FF))
-            }
-        } else {
-            // Привязка соцсервисов
-            Text(
-                "Привязать сервис",
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val yandexLinked = "yandex" in state.linked
-                val vkLinked = "vk" in state.linked
-                SocialButton(
-                    Modifier.weight(1f).then(
-                        if (yandexLinked) Modifier // уже привязан — повторная привязка не нужна
-                        else Modifier.clickable { viewModel.createOAuthLinkCode { openOAuth(ctx, "yandex", it) } }
-                    ),
-                    "Яндекс", badge = "Я", badgeColor = Color(0xFFFC3F1D), linked = yandexLinked,
-                )
-                SocialButton(
-                    Modifier.weight(1f).then(
-                        if (vkLinked) Modifier
-                        else Modifier.clickable { viewModel.createOAuthLinkCode { openOAuth(ctx, "vk", it) } }
-                    ),
-                    "VK", badge = "VK", badgeColor = Color(0xFF0077FF), linked = vkLinked,
-                )
-            }
-            TextButton(
-                onClick = viewModel::logoutAllDevices,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            ) { Text("Выйти на всех устройствах", color = MaterialTheme.colorScheme.error) }
-        }
-
-        // Настройки
-        Text(
-            "Настройки",
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        SettingRow("Тёмная тема", isDarkTheme, { onThemeToggle() })
-        
-        Text(
-            "Настройки плеера",
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        SettingRow("Автопропуск опенинга", state.autoSkipOpening, viewModel::setAutoSkipOpening)
-        SettingRow("Автопропуск повтора", state.autoSkipRecap, viewModel::setAutoSkipRecap)
-        SettingRow("Автопереход к след. серии", state.autoNextEpisode, viewModel::setAutoNextEpisode)
-
-        var bugDialog by remember { mutableStateOf(false) }
-        TextButton(
-            onClick = { bugDialog = true },
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        ) { Text("Сообщить о баге") }
-        if (bugDialog) {
-            BugReportDialog(
-                busy = state.bugReportBusy,
-                error = state.bugReportError,
-                sent = state.bugReportSent,
-                defaultContact = state.email.orEmpty(),
-                onDismiss = { bugDialog = false; viewModel.clearBugReport() },
-                onSend = viewModel::sendBugReport,
-            )
-        }
-        LaunchedEffect(state.bugReportSent) {
-            if (state.bugReportSent) bugDialog = false
-        }
-
-        val legalCtx = androidx.compose.ui.platform.LocalContext.current
-        Row {
-            TextButton(
-                onClick = { openUrl(legalCtx, "https://5-42-99-195.sslip.io/privacy") },
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            ) { Text("Конфиденциальность", style = MaterialTheme.typography.labelSmall) }
-            TextButton(
-                onClick = { openUrl(legalCtx, "https://5-42-99-195.sslip.io/for-right-holders") },
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            ) { Text("Правообладателям", style = MaterialTheme.typography.labelSmall) }
-        }
-
-        Text(
-            "Версия ${com.anipulse.app.BuildConfig.VERSION_NAME}",
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(24.dp))
-    }
 }
 
 @Composable
@@ -607,6 +269,85 @@ private fun ProfileRedesign(
                 ReferenceStat(Modifier.weight(1f), "${state.plannedTitles}", "В планах")
                 ReferenceStat(Modifier.weight(1f), "${state.completedTitles}", "Просмотрено")
                 ReferenceStat(Modifier.weight(1f), if (hours > 999) "${hours / 1000}.${(hours % 1000) / 100}K" else "$hours", "Часов")
+            }
+        }
+
+        // Карточка Ранга и Таблицы лидеров
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF1B1B2A),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFFF4D8D).copy(alpha = 0.35f)),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.badge, style = MaterialTheme.typography.headlineMedium)
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Ранг: ${state.levelTitle}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                        val rankText = if (state.rank > 0) "#${state.rank} в общем топе" else "${state.watchedEpisodes} серий просмотрено"
+                        Text(
+                            text = rankText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFFFB300),
+                        )
+                    }
+                }
+                Button(
+                    onClick = { viewModel.toggleLeaderboard(true) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text("👑 Топ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        if (state.showLeaderboardDialog) {
+            LeaderboardDialog(state, onDismiss = { viewModel.toggleLeaderboard(false) })
+        }
+
+        // Блок сообщества Telegram
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF151522),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFF0288D1).copy(alpha = 0.4f)),
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("✈", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Telegram сообщество AniPulse",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                }
+                Text(
+                    text = "Анонсы серий, обсуждения аниме, общение и связь с создателями:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = { openUrl(context, "https://t.me/+D92r3ttCfNtkYWFi") },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Вступить в Telegram группу", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -1164,5 +905,451 @@ private fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> U
     ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LeaderboardDialog(
+    state: ProfileState,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF13131F),
+        contentColor = Color.White,
+        dragHandle = {
+            Box(
+                Modifier
+                    .padding(vertical = 10.dp)
+                    .size(width = 36.dp, height = 4.dp)
+                    .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+            )
+        },
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+        ) {
+            // Header
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "👑 Таблица лидеров",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Рейтинг активных зрителей сообщества",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFF1E1E2E),
+                    modifier = Modifier.size(32.dp).clickable { onDismiss() }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("✕", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Main Content
+            Box(Modifier.weight(1f)) {
+                if (state.leaderboardBusy) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFFFF4D8D))
+                    }
+                } else if (state.leaderboard.isEmpty()) {
+                    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("👑", style = MaterialTheme.typography.displayMedium)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Пока нет активных зрителей",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Смотрите аниме, синхронизируйте просмотры и займите 1-е место в топе!",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    val top1 = state.leaderboard.getOrNull(0)
+                    val top2 = state.leaderboard.getOrNull(1)
+                    val top3 = state.leaderboard.getOrNull(2)
+                    val rest = if (state.leaderboard.size > 3) state.leaderboard.drop(3) else emptyList()
+
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Top-3 Podium Card
+                        if (top1 != null) {
+                            item {
+                                PodiumSection(top1, top2, top3, state.userId)
+                                Spacer(Modifier.height(6.dp))
+                            }
+                        }
+
+                        // Remaining Ranks (#4+)
+                        if (rest.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "Общий рейтинг",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(rest) { entry ->
+                                LeaderboardRow(entry, isMe = state.userId > 0 && entry.userId == state.userId)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Pinned Bottom Bar: "Ваш статус"
+            if (state.nick != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF1B182B),
+                    border = BorderStroke(1.dp, Color(0xFFFF4D8D).copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFFF4D8D).copy(alpha = 0.2f),
+                                modifier = Modifier.padding(end = 10.dp)
+                            ) {
+                                val rankText = if (state.rank > 0) "#${state.rank}" else "-"
+                                Text(
+                                    rankText,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFFFF4D8D)
+                                )
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        state.nick ?: "Вы",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "• ${state.levelTitle} ${state.badge}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White.copy(alpha = 0.8f)
+                                    )
+                                }
+                                Text(
+                                    "Ваш текущий результат в рейтинге",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "${state.watchedEpisodes} эп.",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFFF4D8D)
+                            )
+                            val hours = String.format(java.util.Locale.US, "%.1f ч", state.watchTimeMs / 3600000.0)
+                            Text(
+                                hours,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PodiumSection(
+    top1: com.anipulse.app.data.LeaderboardEntry,
+    top2: com.anipulse.app.data.LeaderboardEntry?,
+    top3: com.anipulse.app.data.LeaderboardEntry?,
+    currentUserId: Long,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF181829),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+    ) {
+        Column(
+            Modifier.padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "ТОП-3 ЗРИТЕЛЯ",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Black,
+                color = Color(0xFFFFB300),
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // 2nd Place (Silver)
+                if (top2 != null) {
+                    PodiumColumn(
+                        entry = top2,
+                        place = 2,
+                        placeIcon = "🥈",
+                        accentColor = Color(0xFFC0C0C0),
+                        podiumHeight = 90.dp,
+                        modifier = Modifier.weight(1f),
+                        isMe = currentUserId > 0 && top2.userId == currentUserId
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+
+                // 1st Place (Gold)
+                PodiumColumn(
+                    entry = top1,
+                    place = 1,
+                    placeIcon = "👑",
+                    accentColor = Color(0xFFFFD700),
+                    podiumHeight = 115.dp,
+                    modifier = Modifier.weight(1.15f),
+                    isMe = currentUserId > 0 && top1.userId == currentUserId
+                )
+
+                // 3rd Place (Bronze)
+                if (top3 != null) {
+                    PodiumColumn(
+                        entry = top3,
+                        place = 3,
+                        placeIcon = "🥉",
+                        accentColor = Color(0xFFCD7F32),
+                        podiumHeight = 75.dp,
+                        modifier = Modifier.weight(1f),
+                        isMe = currentUserId > 0 && top3.userId == currentUserId
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PodiumColumn(
+    entry: com.anipulse.app.data.LeaderboardEntry,
+    place: Int,
+    placeIcon: String,
+    accentColor: Color,
+    podiumHeight: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+    isMe: Boolean = false,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Icon above avatar (Crown / Medal)
+        Text(placeIcon, style = if (place == 1) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(2.dp))
+
+        // Avatar with colored border
+        Box(
+            Modifier
+                .size(if (place == 1) 48.dp else 40.dp)
+                .background(accentColor.copy(alpha = 0.2f), CircleShape)
+                .border(2.dp, accentColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Avatar(
+                entry.avatar,
+                size = if (place == 1) 44.dp else 36.dp,
+                nick = entry.nick,
+                accountId = entry.userId
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // Nickname
+        Text(
+            text = entry.nick,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (isMe) Color(0xFFFF4D8D) else Color.White,
+            maxLines = 1,
+            textAlign = TextAlign.Center
+        )
+
+        // Episodes
+        Text(
+            text = "${entry.episodesWatched} эп.",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Black,
+            color = accentColor
+        )
+
+        Spacer(Modifier.height(6.dp))
+
+        // Podium Block
+        Surface(
+            modifier = Modifier.fillMaxWidth().height(podiumHeight),
+            color = accentColor.copy(alpha = 0.15f),
+            shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "#$place",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = accentColor
+                    )
+                    Text(
+                        text = entry.levelTitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardRow(
+    entry: com.anipulse.app.data.LeaderboardEntry,
+    isMe: Boolean,
+) {
+    Surface(
+        Modifier.fillMaxWidth(),
+        color = if (isMe) Color(0xFF2A1F3D) else Color(0xFF1A1A2B),
+        shape = RoundedCornerShape(14.dp),
+        border = if (isMe) BorderStroke(1.dp, Color(0xFFFF4D8D).copy(alpha = 0.6f))
+                 else BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Rank Pill
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (isMe) Color(0xFFFF4D8D).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
+                modifier = Modifier.width(36.dp).height(28.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        "#${entry.rank}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isMe) Color(0xFFFF4D8D) else Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            // Avatar
+            Avatar(
+                entry.avatar,
+                size = 38.dp,
+                nick = entry.nick,
+                accountId = entry.userId
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            // Nick + Level
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.nick,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    if (isMe) {
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "(Вы)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFF4D8D),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Text(
+                    "${entry.levelTitle} ${entry.badge}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Episodes and hours
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "${entry.episodesWatched} эп.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Black,
+                    color = if (isMe) Color(0xFFFF4D8D) else Color(0xFFFF6B9D)
+                )
+                Text(
+                    "${entry.watchHours} ч",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

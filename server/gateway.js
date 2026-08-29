@@ -316,8 +316,6 @@ async function handlePoster(id, res) {
     return res.end('poster error: ' + e.message);
   }
 }
-
-// OTA-обновления: манифест версии + сам APK (кладётся в /opt/anipulse при релизе).
 function handleAppVersion(res) {
   try { return jsonRes(res, 200, JSON.parse(fs.readFileSync(dataPath('app-version.json'), 'utf8'))); }
   catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
@@ -830,8 +828,174 @@ async function handleSync(req, res) {
   }
   all.users[user.id] = entry;
   saveJson(SYNC_FILE, all);
+  leaderboardCache = { exp: 0, data: null };
   return jsonRes(res, 200, syncResponse(entry));
 }
+
+// ===== Статистика просмотров, ранги и Таблица лидеров =====
+function getLevelInfo(episodesCount) {
+  if (episodesCount >= 500) return { level: 6, title: 'Легенда', badge: '⚡💎', nextTarget: null };
+  if (episodesCount >= 300) return { level: 5, title: 'Сенсей', badge: '👑', nextTarget: 500 };
+  if (episodesCount >= 150) return { level: 4, title: 'Отаку', badge: '⭐', nextTarget: 300 };
+  if (episodesCount >= 50)  return { level: 3, title: 'Анимешник', badge: '🔥', nextTarget: 150 };
+  if (episodesCount >= 10)  return { level: 2, title: 'Любитель', badge: '🍿', nextTarget: 50 };
+  return { level: 1, title: 'Новичок', badge: '🌱', nextTarget: 10 };
+}
+
+function calculateUserStats(userId, syncEntry) {
+  const progressItems = Object.values(syncEntry && syncEntry.progress || {});
+  const favoriteItems = Object.values(syncEntry && syncEntry.favorites || {});
+
+  let watchedEpisodesCount = 0;
+  let totalWatchMs = 0;
+  for (const p of progressItems) {
+    if (p && !p.deleted) {
+      if (p.watched === true || (p.durationMs > 0 && p.positionMs >= 0.8 * p.durationMs)) {
+        watchedEpisodesCount++;
+      }
+      if (p.positionMs > 0) {
+        totalWatchMs += Math.min(p.positionMs, p.durationMs || p.positionMs);
+      }
+    }
+  }
+
+  let completedTitlesCount = 0;
+  for (const f of favoriteItems) {
+    if (f && !f.deleted && f.status === 'completed') {
+      completedTitlesCount++;
+    }
+  }
+
+  const watchMinutes = Math.round(totalWatchMs / 60000);
+  const watchHours = +(watchMinutes / 60).toFixed(1);
+  const levelInfo = getLevelInfo(watchedEpisodesCount);
+
+  return {
+    episodesWatched: watchedEpisodesCount,
+    watchMinutes,
+    watchHours,
+    completedTitles: completedTitlesCount,
+    level: levelInfo.level,
+    levelTitle: levelInfo.title,
+    badge: levelInfo.badge,
+    nextTarget: levelInfo.nextTarget,
+  };
+}
+
+let leaderboardCache = { exp: 0, data: null };
+
+function generateLeaderboard() {
+  const syncDb = loadJson(SYNC_FILE, { users: {} });
+  const usersDb = loadUsers().users || [];
+  const userMap = new Map();
+  for (const u of usersDb) {
+    if (u && u.id && !u.banned) {
+      userMap.set(String(u.id), u);
+    }
+  }
+
+  const list = [];
+  for (const [userIdStr, entry] of Object.entries(syncDb.users || {})) {
+    const user = userMap.get(userIdStr);
+    if (!user) continue;
+    const stats = calculateUserStats(user.id, entry);
+    if (stats.episodesWatched > 0 || stats.watchMinutes > 0) {
+      list.push({
+        userId: user.id,
+        nick: user.nick,
+        avatar: user.avatar !== undefined ? user.avatar : 0,
+        avatarCustom: avatarOf(user) === -1,
+        episodesWatched: stats.episodesWatched,
+        watchHours: stats.watchHours,
+        watchMinutes: stats.watchMinutes,
+        completedTitles: stats.completedTitles,
+        level: stats.level,
+        levelTitle: stats.levelTitle,
+        badge: stats.badge,
+      });
+    }
+  }
+
+  list.sort((a, b) => b.episodesWatched - a.episodesWatched || b.watchMinutes - a.watchMinutes);
+
+  for (let i = 0; i < list.length; i++) {
+    list[i].rank = i + 1;
+  }
+
+  return list;
+}
+
+function getLeaderboardData() {
+  const now = Date.now();
+  if (leaderboardCache.data && leaderboardCache.exp > now) {
+    return leaderboardCache.data;
+  }
+  const allRanked = generateLeaderboard();
+  leaderboardCache = {
+    exp: now + 60 * 1000,
+    data: allRanked,
+  };
+  return allRanked;
+}
+
+async function handleLeaderboard(req, res) {
+  const currentUser = authUser(req);
+  const allRanked = getLeaderboardData();
+  const top50 = allRanked.slice(0, 50);
+
+  let myRank = null;
+  if (currentUser) {
+    const found = allRanked.find(x => x.userId === currentUser.id);
+    if (found) {
+      myRank = found;
+    } else {
+      const syncDb = loadJson(SYNC_FILE, { users: {} });
+      const stats = calculateUserStats(currentUser.id, syncDb.users && syncDb.users[currentUser.id]);
+      myRank = {
+        rank: allRanked.length + 1,
+        userId: currentUser.id,
+        nick: currentUser.nick,
+        avatar: currentUser.avatar !== undefined ? currentUser.avatar : 0,
+        avatarCustom: avatarOf(currentUser) === -1,
+        episodesWatched: stats.episodesWatched,
+        watchHours: stats.watchHours,
+        watchMinutes: stats.watchMinutes,
+        completedTitles: stats.completedTitles,
+        level: stats.level,
+        levelTitle: stats.levelTitle,
+        badge: stats.badge,
+      };
+    }
+  }
+
+  return jsonRes(res, 200, {
+    leaderboard: top50,
+    totalParticipants: allRanked.length,
+    myRank,
+  });
+}
+
+async function handleMyStats(req, res) {
+  const currentUser = authUser(req);
+  if (!currentUser) return jsonRes(res, 401, { error: 'auth' });
+  const syncDb = loadJson(SYNC_FILE, { users: {} });
+  const entry = syncDb.users && syncDb.users[currentUser.id];
+  const stats = calculateUserStats(currentUser.id, entry);
+  const allRanked = getLeaderboardData();
+  const rankEntry = allRanked.find(x => x.userId === currentUser.id);
+  const rank = rankEntry ? rankEntry.rank : (allRanked.length + 1);
+
+  return jsonRes(res, 200, {
+    userId: currentUser.id,
+    nick: currentUser.nick,
+    avatar: currentUser.avatar !== undefined ? currentUser.avatar : 0,
+    avatarCustom: avatarOf(currentUser) === -1,
+    rank,
+    totalParticipants: allRanked.length,
+    ...stats,
+  });
+}
+
 function blocksDb() { return loadJson(BLOCKS_FILE, {}); }
 function blockedIds(db, userId) { return (db[String(userId)] || []).map(Number); }
 function hasBlocked(db, userId, targetId) { return blockedIds(db, userId).includes(Number(targetId)); }
@@ -2276,6 +2440,8 @@ async function route(req, res) {
   if (req.url.startsWith('/alapi/notifications')) return handleNotifications(req, res);
   if (req.url.startsWith('/alapi/comments')) return handleComments(req, res);
   if (req.url.startsWith('/alapi/sync')) return handleSync(req, res);
+  if (req.url.startsWith('/alapi/leaderboard')) return handleLeaderboard(req, res);
+  if (req.url.startsWith('/alapi/stats/me')) return handleMyStats(req, res);
   if (req.url.startsWith('/alapi/rating')) return handleRating(req, res);
   if (req.url.startsWith('/alapi/avatar-upload')) return handleAvatarUpload(req, res);
   if (req.url.startsWith('/alapi/avatar-img')) return handleAvatarImg(req, res);

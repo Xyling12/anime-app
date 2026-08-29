@@ -34,7 +34,6 @@ data class ProfileState(
     val linked: List<String> = emptyList(),
     val authBusy: Boolean = false,
     val authError: String? = null,
-    /** true — код восстановления отправлен, диалог показывает поля кода и нового пароля. */
     val resetCodeSent: Boolean = false,
     val bugReportBusy: Boolean = false,
     val bugReportError: String? = null,
@@ -49,6 +48,16 @@ data class ProfileState(
     val admin: Boolean = false,
     val analytics: com.anipulse.app.data.AdminAnalytics? = null,
     val analyticsBusy: Boolean = false,
+    val rank: Int = 0,
+    val totalParticipants: Int = 0,
+    val level: Int = 1,
+    val levelTitle: String = "Новичок",
+    val badge: String = "🥉",
+    val nextTarget: Int? = 10,
+    val leaderboard: List<com.anipulse.app.data.LeaderboardEntry> = emptyList(),
+    val leaderboardBusy: Boolean = false,
+    val leaderboardError: String? = null,
+    val showLeaderboardDialog: Boolean = false,
 )
 
 @HiltViewModel
@@ -78,11 +87,11 @@ class ProfileViewModel @Inject constructor(
             runCatching { syncRepository.syncAll() }
             refresh()
             syncStatsToServer()
+            refreshStatsAndLeaderboard()
         }
         refreshMe()
         if (settings.authAdmin) refreshAnalytics()
     }
-
     /**
      * Подтянуть аккаунт/привязки с сервера. Дёргается при создании экрана и на каждый
      * RESUME — иначе после возврата из браузера с OAuth-привязкой (Яндекс/VK) кнопки
@@ -369,40 +378,6 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    /** Подтверждение почты: отправить код с плашки. */
-    fun verifyEmail(code: String) {
-        val token = settings.authToken ?: return
-        viewModelScope.launch {
-            val ok = runCatching {
-                gateway.verifyEmail("Bearer $token", com.anipulse.app.data.VerifyRequest(code.trim()))
-            }.isSuccess
-            _state.update {
-                it.copy(
-                    emailVerified = if (ok) true else it.emailVerified,
-                    verifyMessage = if (ok) "Почта подтверждена!" else "Неверный или просроченный код",
-                )
-            }
-        }
-    }
-
-    /** Прислать код повторно (сервер: не чаще 1/мин). */
-    fun resendCode() {
-        val token = settings.authToken ?: return
-        viewModelScope.launch {
-            runCatching { gateway.resendCode("Bearer $token") }
-            _state.update { it.copy(verifyMessage = "Код отправлен на почту") }
-        }
-    }
-
-    /** Сохранить «О себе» (до 200 символов) на сервере. */
-    fun saveBio(bio: String) {
-        val token = settings.authToken ?: return
-        viewModelScope.launch {
-            runCatching {
-                gateway.updateProfile("Bearer $token", com.anipulse.app.data.ProfileUpdateRequest(bio = bio.take(200)))
-            }
-        }
-    }
 
     fun refresh() {
         viewModelScope.launch {
@@ -418,6 +393,63 @@ class ProfileViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun refreshStatsAndLeaderboard() {
+        viewModelScope.launch {
+            _state.update { it.copy(leaderboardBusy = true, leaderboardError = null) }
+            val token = settings.authToken
+            val bearer = token?.let { "Bearer $it" }
+            runCatching {
+                gateway.leaderboard(bearer)
+            }.onSuccess { res ->
+                _state.update { state ->
+                    val my = res.myRank
+                    val localWatched = state.watchedEpisodes
+                    val localLevel = when {
+                        localWatched >= 500 -> Triple(6, "Легенда", "⚡💎")
+                        localWatched >= 300 -> Triple(5, "Сенсей", "👑")
+                        localWatched >= 150 -> Triple(4, "Отаку", "⭐")
+                        localWatched >= 50 -> Triple(3, "Анимешник", "🔥")
+                        localWatched >= 10 -> Triple(2, "Любитель", "🍿")
+                        else -> Triple(1, "Новичок", "🌱")
+                    }
+                    state.copy(
+                        leaderboard = res.leaderboard,
+                        totalParticipants = res.totalParticipants,
+                        rank = my?.rank ?: state.rank,
+                        level = my?.level ?: localLevel.first,
+                        levelTitle = my?.levelTitle ?: localLevel.second,
+                        badge = my?.badge ?: localLevel.third,
+                        leaderboardBusy = false
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { state ->
+                    val localWatched = state.watchedEpisodes
+                    val localLevel = when {
+                        localWatched >= 500 -> Triple(6, "Легенда", "⚡💎")
+                        localWatched >= 300 -> Triple(5, "Сенсей", "👑")
+                        localWatched >= 150 -> Triple(4, "Отаку", "⭐")
+                        localWatched >= 50 -> Triple(3, "Анимешник", "🔥")
+                        localWatched >= 10 -> Triple(2, "Любитель", "🍿")
+                        else -> Triple(1, "Новичок", "🌱")
+                    }
+                    state.copy(
+                        level = localLevel.first,
+                        levelTitle = localLevel.second,
+                        badge = localLevel.third,
+                        leaderboardBusy = false,
+                        leaderboardError = err.message
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleLeaderboard(show: Boolean) {
+        _state.update { it.copy(showLeaderboardDialog = show) }
+        if (show) refreshStatsAndLeaderboard()
     }
 
     fun setAutoSkipOpening(v: Boolean) { settings.autoSkipOpening = v; _state.update { it.copy(autoSkipOpening = v) } }
