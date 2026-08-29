@@ -1,44 +1,178 @@
-app.xn--c1acbe2apap.com {
-    reverse_proxy 127.0.0.1:8080
+# ==============================================================================
+# СНЯТО С БОЕВОГО СЕРВЕРА 5.42.99.195 (/etc/caddy/Caddyfile), 2026-08-29.
+#
+# Источник истины — этот файл. До него здесь лежал огрызок на три хоста и вовсе
+# без Content-Security-Policy: его раскатка сняла бы защиту от XSS сразу с
+# нескольких сайтов. Конфиг правился на сервере руками мимо git — отсюда
+# расхождение: 12 хостов и 5 политик против 3 хостов и нуля.
+#
+# Правки вносить ЗДЕСЬ и выкладывать на сервер, а не наоборот:
+#   caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+#
+# Секретов в файле нет — ни basic_auth, ни токенов, ни паролей (проверено).
+# ==============================================================================
+
+# ==============================================================================
+# Unified Production Caddyfile - Multi-Site Hardened Configuration
+# ==============================================================================
+
+# --- Snippets ---
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-X-Powered-By
+	}
 }
 
-# Старый адрес AniPulse оставлен для установленных beta-версий и /license TakerTap.
-5-42-99-195.sslip.io {
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        X-Frame-Options "DENY"
-        -Server
-    }
-    handle /license/* {
-        reverse_proxy 127.0.0.1:8080
-    }
-    handle {
-        reverse_proxy 127.0.0.1:8090
-    }
+(block_sensitive) {
+	@forbidden path /.env* /.git* /.svn* /.hg* /.ssh/* /package.json /package-lock.json /yarn.lock /composer.json /composer.lock /docker-compose* /Dockerfile* /.dockerignore /*.sh /*.py /*.rb /*.pl /*.sql /*.bak* /*.old /*.orig /*.swp /*~ /*.key /*.pem /*.p12 /*.jks /*.keystore /scripts/* /node_modules/* /.github/* /.vscode/* /.idea/* /*.md /*.log /.DS_Store /Thumbs.db
+	respond @forbidden 404
+}
+
+# ------------------------------------------------------------------------------
+# 1. MineAge (mineage2.ru)
+# ------------------------------------------------------------------------------
+www.mineage2.ru {
+	redir https://mineage2.ru{uri} permanent
+}
+
+mineage2.ru {
+	root * /opt/migrated/mineage2/site
+	encode zstd gzip
+
+	import security_headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://mc.yandex.ru; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+	}
+
+	import block_sensitive
+
+	@static path *.ico *.png *.jpg *.jpeg *.webp *.svg *.woff *.woff2 *.css *.js
+	header @static Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+
+	file_server
+
+	handle_errors {
+		@404 expression {err.status_code} == 404
+		handle @404 {
+			rewrite * /404.html
+			file_server
+		}
+	}
+}
+
+# ------------------------------------------------------------------------------
+# 2. AniPulse (anipulsetv.ru)
+# ------------------------------------------------------------------------------
+www.anipulsetv.ru {
+	redir https://anipulsetv.ru{uri} permanent
 }
 
 anipulsetv.ru {
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        X-Frame-Options "DENY"
-        -Server
-    }
-    handle /.well-known/assetlinks.json {
-        reverse_proxy 127.0.0.1:8090
-    }
-    handle /license/* {
-        reverse_proxy 127.0.0.1:8080
-    }
-    handle /alapi/* {
-        reverse_proxy 127.0.0.1:8090
-    }
-    handle {
-        reverse_proxy 127.0.0.1:8091
-    }
+	import security_headers
+	header {
+		X-Frame-Options "DENY"
+		# 'unsafe-eval' убран 2026-08-29: проверено в браузере, что каталог,
+		# главная и плеер (hls.js, выбор озвучки, aniskip) работают без него.
+		# Тогда же добавлены wss://mc.yandex.ru (вебвизор Метрики открывает
+		# WebSocket, и он молча блокировался), kodikplayer.com (шлюз отдаёт
+		# ссылки на плеер именно туда), worker-src и object-src.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://mc.yandex.ru wss://mc.yandex.ru https://*.shikimori.one https://*.shikimori.io https://*.shikimori.me https://kodik.info; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	}
+
+	handle /.well-known/assetlinks.json {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /license/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle /alapi/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8091
+	}
+}
+
+# ------------------------------------------------------------------------------
+# 3. Grand Transfer (таксикрым.com / xn--c1acbe2apap.com)
+# ------------------------------------------------------------------------------
+www.xn--c1acbe2apap.com {
+	redir https://xn--c1acbe2apap.com{uri} permanent
+}
+
+xn--c1acbe2apap.com {
+	import security_headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://mc.yandex.ru; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+	}
+	reverse_proxy 127.0.0.1:8101
+}
+
+# ------------------------------------------------------------------------------
+# 4. TransRus (таксипосейдон.рф / xn----ftbdbf8asar.online)
+# ------------------------------------------------------------------------------
+www.xn----ftbdbf8asar.online {
+	redir https://xn----ftbdbf8asar.online{uri} permanent
+}
+
+xn----ftbdbf8asar.online {
+	import security_headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://mc.yandex.ru; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+	}
+	reverse_proxy 127.0.0.1:8102
+}
+
+# ------------------------------------------------------------------------------
+# 5. MacLen Cat (maclencat.ru)
+# ------------------------------------------------------------------------------
+www.maclencat.ru {
+	redir https://maclencat.ru{uri} permanent
+}
+
+maclencat.ru {
+	import security_headers
+	header {
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https://mc.yandex.ru; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+	}
+	reverse_proxy 127.0.0.1:8103
+}
+
+# ------------------------------------------------------------------------------
+# 6. TakerTap Mini App (app.xn--c1acbe2apap.com)
+# ------------------------------------------------------------------------------
+app.xn--c1acbe2apap.com {
+	import security_headers
+	header {
+		X-Frame-Options "ALLOWALL"
+	}
+	reverse_proxy 127.0.0.1:8080
+}
+
+# ------------------------------------------------------------------------------
+# 7. Legacy SSLIP Endpoint
+# ------------------------------------------------------------------------------
+5-42-99-195.sslip.io {
+	import security_headers
+	header {
+		X-Frame-Options "DENY"
+	}
+	handle /license/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle /alapi/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8091
+	}
 }

@@ -1,0 +1,22 @@
+# ============================================================================
+# CSP для anipulsetv.ru — предлагаемая замена того, что стоит на сервере сейчас.
+#
+# Отличия от действующей политики:
+#   1. Убран 'unsafe-eval' из script-src. Проверено вживую: каталог, главная и
+#      плеер (hls.js + выбор озвучки + aniskip) работают без него, нарушений
+#      script-src в консоли нет. Это главная правка.
+#   2. Добавлен wss://mc.yandex.ru — вебвизор Метрики открывает WebSocket на
+#      wss://mc.yandex.ru/solid.ws, и текущая политика его блокирует, то есть
+#      часть аналитики сейчас молча не работает.
+#   3. Добавлен https://kodikplayer.com во frame-src: шлюз отдаёт ссылки на
+#      плеер вида //kodikplayer.com/serial/..., а действующая политика знает
+#      только kodik.info.
+#   4. Добавлены object-src 'none' и worker-src 'self' blob: — без первого
+#      остаются legacy-плагины, без второго Service Worker падает на политике
+#      default-src в части браузеров.
+#
+# ВНИМАНИЕ: применять на сервере в /etc/caddy/Caddyfile внутри блока
+# anipulsetv.ru { header { ... } }, затем `caddy validate` и `systemctl reload caddy`.
+# ============================================================================
+
+Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://mc.yandex.ru wss://mc.yandex.ru https://*.shikimori.one https://*.shikimori.io https://*.shikimori.me https://kodik.info; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"

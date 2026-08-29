@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
   security-events: write
+  # Нужны только на событии pull_request, поэтому на push-прогонах их нехватку
+  # не замечали: Gitleaks читает список коммитов PR (GET /repos/../pulls/N/commits),
+  # а upload-sarif — сведения о прогоне (GET /repos/../actions/runs/N).
+  # Без них обе работы падали с 403 «Resource not accessible by integration».
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: security-${{ github.ref }}
@@ -60,7 +66,39 @@ jobs:
             --severity ERROR \
             --metrics off || true
 
+      # Загрузка во вкладку Security на приватном репозитории требует GitHub
+      # Advanced Security и отвечает «Code scanning is not enabled». Раньше
+      # из-за этого падала вся работа — по причине, не связанной с кодом,
+      # и при этом сами находки не были видны нигде: они уходили в SARIF.
+      # Поэтому печатаем их в лог и падаем именно на них.
+      - name: Показать находки Semgrep
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, sys, pathlib
+          f = pathlib.Path("semgrep.sarif")
+          if not f.exists():
+              print("semgrep.sarif не создан — сканирование не отработало")
+              sys.exit(1)
+          sarif = json.loads(f.read_text(encoding="utf-8"))
+          results = [r for run in sarif.get("runs", []) for r in run.get("results", [])]
+          if not results:
+              print("Находок нет.")
+              sys.exit(0)
+          print(f"Находок: {len(results)}\n")
+          for r in results:
+              loc = r.get("locations", [{}])[0].get("physicalLocation", {})
+              path = loc.get("artifactLocation", {}).get("uri", "?")
+              line = loc.get("region", {}).get("startLine", "?")
+              msg = r.get("message", {}).get("text", "").strip().replace("\n", " ")
+              print(f"  {path}:{line}\n    правило: {r.get('ruleId','?')}\n    {msg}\n")
+          sys.exit(1)
+          PY
+
       - name: Upload SARIF to GitHub Security tab
+        # Не роняем проверку, если Advanced Security не подключён: находки
+        # уже показаны шагом выше. Заработает само, если включат code scanning.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
@@ -77,9 +115,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22, а не 20: pnpm 11 подключает встроенный модуль node:sqlite,
+          # которого в Node 20 нет — установка падала с ERR_UNKNOWN_BUILTIN_MODULE.
+          node-version: 22
 
-      - name: Run npm audit in every package
+      - name: Install pnpm
+        run: npm install -g pnpm@11
+
+      - name: Run dependency audit in every package
         run: |
           # Ищем все package.json, кроме node_modules — вместо жёсткого списка путей,
           # который молча пропускал бы новые подпроекты.
@@ -90,7 +133,18 @@ jobs:
             found=1
             # --audit-level=high намеренно: падение на low/moderate в транзитивных
             # зависимостях приучает игнорировать красный CI, и тогда пропускают критичное.
-            (cd "$dir" && npm audit --omit=dev --audit-level=high) || exit 1
+            #
+            # Менеджер выбираем по лок-файлу, который реально описывает установку.
+            # Раньше здесь всегда звался npm: в проекте на pnpm он читал устаревший
+            # package-lock.json и рапортовал об уязвимостях, которых в реальной
+            # установке уже не было — красный CI, который все привыкают игнорировать.
+            if [ -f "$dir/pnpm-lock.yaml" ]; then
+              (cd "$dir" && pnpm audit --prod --audit-level high) || exit 1
+            elif [ -f "$dir/package-lock.json" ]; then
+              (cd "$dir" && npm audit --omit=dev --audit-level=high) || exit 1
+            else
+              echo "   лок-файл не найден — аудит невозможен, пропускаю"
+            fi
           done < <(find . -name package.json -not -path '*/node_modules/*' -not -path './.git/*')
           [ "$found" -eq 0 ] && echo "package.json не найден — пропускаю."
           exit 0
