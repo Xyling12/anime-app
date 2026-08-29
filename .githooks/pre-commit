@@ -1,0 +1,115 @@
+#!/bin/sh
+# Поиск секретов перед коммитом. Универсальный, не привязан к проекту.
+# Установка в репозиторий — см. README.md §11.
+# Включается один раз:
+#   git config core.hooksPath .githooks
+#
+# Проверяются только добавляемые строки в staged-файлах. Боты сканируют события GitHub
+# в реальном времени, и утёкший ключ эксплуатируют за минуты — вычистить историю потом
+# дороже, чем не закоммитить сейчас.
+#
+# Обойти осознанно: git commit --no-verify
+
+set -e
+
+# -E обязателен в обеих grep: в BRE «\+» — квантификатор, а не литеральный плюс,
+# и фильтр заголовков «+++» молча вырезал бы весь diff, оставив хук всегда зелёным.
+#
+# R в --diff-filter: переименование с изменением содержимого git репортит как R, а не M.
+# Без него секрет, добавленный в переименованный файл, проходит незамеченным.
+added=$(git diff --cached --unified=0 --diff-filter=ACMR | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+
+# Раннего выхода при пустом $added здесь быть не должно: у бинарного файла git не
+# показывает строк diff, и выход в этом месте пропускал бы проверки по именам файлов
+# и по размеру. Тогда бинарный .env, дамп БД или .p12 уезжали бы в коммит незамеченными.
+# Проверки содержимого ниже сами по себе безопасны на пустом вводе.
+
+fail=0
+report() {
+  if [ "$fail" -eq 0 ]; then
+    echo "──────────────────────────────────────────────"
+    echo " Коммит остановлен: похоже на секрет в изменениях"
+    echo "──────────────────────────────────────────────"
+  fi
+  fail=1
+  echo "  [$1]"
+  echo "$2" | sed 's/^/      /'
+}
+
+check() {
+  # -e обязателен: шаблон приватного ключа начинается с «-», без -e grep примет его за опцию.
+  hits=$(printf '%s\n' "$added" | grep -nEi -e "$2" || true)
+  [ -n "$hits" ] && report "$1" "$hits"
+  return 0
+}
+
+# --- Приватные ключи и облачные провайдеры ---
+check "приватный ключ"          '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+check "AWS access key"          'AKIA[0-9A-Z]{16}'
+check "Google AI / Maps key"    'AIza[0-9A-Za-z_-]{35}'
+check "Yandex Cloud key"        '(YCA|AQVN)[A-Za-z0-9_-]{20,}'
+check "Google service account"  '"type"[[:space:]]*:[[:space:]]*"service_account"'
+
+# --- Платформы разработки ---
+check "GitHub token"            'gh[pousr]_[A-Za-z0-9]{20,}'
+check "GitLab token"            'glpat-[A-Za-z0-9_-]{20,}'
+check "npm token"               'npm_[A-Za-z0-9]{36}'
+check "Slack token"             'xox[baprs]-[A-Za-z0-9-]{10,}'
+
+# --- Мессенджеры и соцсети ---
+check "Telegram bot token"      '[0-9]{8,10}:AA[A-Za-z0-9_-]{30,}'
+check "VK access token"         'vk1\.a\.[A-Za-z0-9_-]{50,}'
+check "Discord bot token"       '[MNO][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}'
+
+# --- AI-провайдеры ---
+check "OpenAI API key"          'sk-(proj-)?[A-Za-z0-9_-]{20,}'
+check "Anthropic Claude key"    'sk-ant-[A-Za-z0-9_-]{20,}'
+
+# --- Платёжные и почтовые сервисы (утечка = прямые деньги) ---
+check "Stripe secret key"       '(sk|rk)_live_[A-Za-z0-9]{20,}'
+check "SendGrid API key"        'SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'
+check "Twilio account SID"      'AC[0-9a-fA-F]{32}'
+check "Mailgun API key"         'key-[0-9a-zA-Z]{32}'
+check "YooKassa / Robokassa"    '(shop_?id|shopid)[[:space:]]*[:=][[:space:]]*["'"'"']?[0-9]{5,}["'"'"']?[^\n]{0,80}(secret|password|pass)'
+
+# --- Общие шаблоны ---
+check "JWT токен в коде"        'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+check "пароль/секрет в коде"    '(password|passwd|secret|client_secret|api_?key|token)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{12,}["'"'"']'
+check "строка подключения"      '(postgres|postgresql|mysql|mongodb(\+srv)?|redis|rediss|amqp|amqps)://[^[:space:]:@]+:[^[:space:]@]+@'
+check "учётные данные в URL"    'https?://[A-Za-z0-9._%-]+:[^[:space:]@/]{4,}@'
+check "SSH-пароль в тексте"     '(ssh|root)[^\n]{0,20}(пароль|password)[[:space:]]*[:=][[:space:]]*[^[:space:]]{6,}'
+check "приватный ключ в одну строку" 'BEGIN (RSA|OPENSSH|EC|DSA|PGP) PRIVATE KEY'
+
+# --- Файлы, которых не должно быть в индексе ни при каких условиях ---
+#
+# Шаблоны-образцы (.env.example, .env.sample, .env.template) — это документация,
+# их коммитить нужно. Исключаем их явно, иначе хук блокирует легитимный коммит.
+staged=$(git diff --cached --name-only --diff-filter=ACMR || true)
+forbidden=$(printf '%s\n' "$staged" \
+  | grep -Eiv '\.(example|sample|template|dist|tpl)$' \
+  | grep -Ei '(^|/)(\.env(\..*)?|secrets?\.(json|ya?ml|md)|SECRETS\.local\.md|oauth\.json|smtp\.json|legal\.json|auth-secret|id_(rsa|ed25519|ecdsa)|.*\.(jks|keystore|p12|pfx|pem|key|ppk))$' \
+  || true)
+[ -n "$forbidden" ] && report "запрещённый файл в индексе" "$forbidden"
+
+# --- Крупные бинарники: частый способ случайно утащить дамп БД или архив с данными ---
+# «|| true» в конце обязателен: если последний файл в цикле НЕ большой, тест [ -gt ]
+# возвращает 1, этот код становится статусом всей подстановки, и set -e молча убивает
+# хук с кодом 1 — git трактует это как «коммит отклонён». Без этого блокируется
+# каждый чистый коммит, причём без единого сообщения об ошибке.
+big=$(printf '%s\n' "$staged" | while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  blob=$(git rev-parse ":$f" 2>/dev/null) || continue
+  size=$(git cat-file -s "$blob" 2>/dev/null || echo 0)
+  [ "$size" -gt 10485760 ] && echo "$f ($((size / 1048576)) МБ)"
+done || true)
+[ -n "$big" ] && report "файл больше 10 МБ (дамп БД? архив?)" "$big"
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "  Убрать из индекса:  git restore --staged <файл>"
+  echo "  Если это ложное срабатывание:  git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0

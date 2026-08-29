@@ -28,8 +28,8 @@ android {
         applicationId = "com.anipulse.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.5.1"
+        versionCode = 24
+        versionName = "0.6.0"
     }
 
     signingConfigs {
@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.retrofit)
@@ -100,4 +101,7 @@ dependencies {
 
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.core.splashscreen)
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

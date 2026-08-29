@@ -32,7 +32,7 @@ export function AuthDialog({ onClose, onDone }: { onClose: () => void; onDone: (
         onDone();
       } else if (mode === "register") {
         if (pass !== pass2) throw new Error("Пароли не совпадают");
-        const r = await register(nick.trim(), email.trim(), pass);
+        const r = await register(nick.trim(), email.trim(), pass, true, true);
         if (r.error) throw new Error(r.error);
         auth.token = r.token!;
         reachGoal("auth_register");

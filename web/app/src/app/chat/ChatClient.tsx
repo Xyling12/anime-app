@@ -34,15 +34,23 @@ export function ChatClient() {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const lastIdRef = useRef(0);
 
-  // Поллинг чата каждые 4с (как в Android)
+  // Поллинг чата каждые 4с
   useEffect(() => {
     let alive = true;
     async function poll() {
-      const after = messages[messages.length - 1]?.id ?? 0;
       try {
-        const fresh = await chat(after);
-        if (alive && fresh.length) setMessages((prev) => [...prev, ...fresh].slice(-200));
+        const fresh = await chat(lastIdRef.current);
+        if (alive && fresh && fresh.length > 0) {
+          const maxId = Math.max(...fresh.map((m) => m.id), lastIdRef.current);
+          lastIdRef.current = maxId;
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newOnes = fresh.filter((m) => !existingIds.has(m.id));
+            return newOnes.length ? [...prev, ...newOnes].slice(-200) : prev;
+          });
+        }
       } catch {}
     }
     poll();
@@ -51,8 +59,7 @@ export function ChatClient() {
       alive = false;
       clearInterval(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length === 0]);
+  }, []);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });

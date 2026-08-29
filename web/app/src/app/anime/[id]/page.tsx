@@ -1,6 +1,7 @@
 import { details } from "@/lib/catalog";
 import { posterOriginal } from "@/lib/api";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { TitleClient } from "./TitleClient";
 import { Icon } from "@/components/Icon";
 import { PosterImage } from "@/components/PosterImage";
@@ -14,6 +15,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   try {
     const d = await details(Number(id));
+    if (!d || !d.id) return { title: "Аниме — AniPulse" };
+
     const title = d.russian?.trim() || d.name;
     const year = d.aired_on ? new Date(d.aired_on).getFullYear() : "";
     const epInfo = d.episodes ? ` (${d.episodes} серий)` : "";
@@ -29,42 +32,44 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       ...(d.english || []),
       "смотреть онлайн",
       "русская озвучка",
-      "все серии бесплатно",
-      "аниме в хорошем качестве",
-      "AniLibria",
-      "AniDUB",
-      "HD 1080p",
+      "аниме онлайн",
+      "HD",
       "AniPulse",
+      ...(d.genres?.map((g) => g.russian || g.name) || []),
     ].filter(Boolean);
 
     return {
-      title: `${title}${year ? ` (${year})` : ""} смотреть онлайн все серии с русской озвучкой бесплатно — AniPulse`,
+      title: `${title} — смотреть аниме онлайн с русской озвучкой на AniPulse`,
       description: desc,
       keywords,
       alternates: {
         canonical: `https://anipulsetv.ru/anime/${d.id}`,
       },
       openGraph: {
-        title: `${title}${year ? ` (${year})` : ""} — смотреть онлайн на AniPulse`,
+        title: `${title} — смотреть онлайн на AniPulse`,
         description: desc,
         url: `https://anipulsetv.ru/anime/${d.id}`,
         siteName: "AniPulse",
-        locale: "ru_RU",
-        type: d.kind === "movie" ? "video.movie" : "video.tv_show",
         images: [
           {
             url: posterUrl,
-            width: 600,
-            height: 900,
+            width: 450,
+            height: 635,
             alt: title,
           },
         ],
+        type: "video.other",
+        locale: "ru_RU",
       },
       twitter: {
         card: "summary_large_image",
-        title: `${title} — смотреть онлайн`,
+        title: `${title} — AniPulse`,
         description: desc,
         images: [posterUrl],
+      },
+      robots: {
+        index: true,
+        follow: true,
       },
     };
   } catch {
@@ -74,7 +79,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function AnimePage({ params }: Props) {
   const { id } = await params;
-  const d = await details(Number(id));
+  let d;
+  try {
+    d = await details(Number(id));
+    if (!d || !d.id) notFound();
+  } catch {
+    notFound();
+  }
+
   const title = d.russian?.trim() || d.name;
   const year = d.aired_on ? new Date(d.aired_on).getFullYear() : "";
   const cleanDesc = (d.description || "").replace(/\[[^\]]*\]/g, "");
@@ -139,11 +151,11 @@ export default async function AnimePage({ params }: Props) {
       {/* JSON-LD Rich Snippets for Search Engines */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, "\\u003c") }}
       />
 
       <section className="relative min-h-[380px] overflow-hidden sm:min-h-[440px] md:min-h-[520px]">

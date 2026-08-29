@@ -42,6 +42,13 @@ export function saveProgress(animeId: number, p: Progress) {
   }));
 }
 
+export function removeProgress(animeId: number) {
+  if (typeof window === "undefined") return;
+  const data = all();
+  delete data[animeId];
+  localStorage.setItem(KEY, JSON.stringify(data));
+}
+
 /** Лента «Продолжить просмотр» — свежие сверху. */
 export function continueWatching(): { animeId: number; p: Progress }[] {
   return Object.entries(all())

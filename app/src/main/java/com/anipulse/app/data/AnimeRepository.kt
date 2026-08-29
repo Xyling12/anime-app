@@ -63,6 +63,8 @@ class AnimeRepository @Inject constructor(
             names = listOfNotNull(details.name, details.russian),
         )
 
+    suspend fun dubs(id: Long): List<Dub> = dubs(details(id))
+
     suspend fun episodeStream(dub: Dub, episode: Int): EpisodeStream? = video.stream(dub, episode)
 
     /** Точные таймкоды опенинга и эндинга (AniSkip) по MAL id. */

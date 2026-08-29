@@ -1,4 +1,4 @@
-package com.anipulse.app.notify
+﻿package com.anipulse.app.notify
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,20 +7,19 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.room.Room
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.anipulse.app.MainActivity
 import com.anipulse.app.R
 import com.anipulse.app.data.Api
-import com.anipulse.app.data.db.AppDatabase
-import java.net.HttpURLConnection
-import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Фоновые пуши без Google-сервисов: раз в ~30 мин опрашивает шлюз.
@@ -29,22 +28,17 @@ import org.json.JSONObject
  */
 class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val ctx = applicationContext
-        // ВАЖНО: настройки/токен живут в EncryptedSharedPreferences (SettingsStore) —
-        // прямое чтение файла anipulse_settings обычными SharedPreferences возвращало null
-        // (ключи в файле зашифрованы), а запись туда плейнтекст-ключей могла сломать
-        // шифрованное хранилище и разлогинить пользователя. Курсоры воркера — в отдельном
-        // нешифрованном файле (секретов не содержат).
         val settings = com.anipulse.app.data.SettingsStore(ctx)
         val prefs = ctx.getSharedPreferences("anipulse_notify_state", Context.MODE_PRIVATE)
         ensureChannels(ctx)
         val canPost = Build.VERSION.SDK_INT < 33 ||
             ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!canPost) return Result.success()
+        if (!canPost) return@withContext Result.success()
 
         runCatching { checkNewEpisodes(ctx, settings, prefs) }
-        return Result.success()
+        Result.success()
     }
 
     // --- Режим «Все»: пуш о любом новом сообщении общего чата (кроме своих) ---
@@ -92,7 +86,7 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
 
     // --- Новые серии тайтлов из «Моё» ---
     private suspend fun checkNewEpisodes(ctx: Context, settings: com.anipulse.app.data.SettingsStore, prefs: android.content.SharedPreferences) {
-        val subscribed = settings.episodeNotifyIds.take(30)
+        val subscribed = settings.episodeNotifyIds.take(10)
         if (subscribed.isEmpty()) return
         val state = JSONObject(prefs.getString("episodes_state", "{}") ?: "{}")
         var changed = false
@@ -115,8 +109,8 @@ class NotifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private fun httpGet(url: String, token: String?): String? {
         val conn = URL(url).openConnection() as HttpURLConnection
         return try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 15000
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
             token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
             if (conn.responseCode != 200) null else conn.inputStream.bufferedReader().readText()
         } catch (e: Exception) {

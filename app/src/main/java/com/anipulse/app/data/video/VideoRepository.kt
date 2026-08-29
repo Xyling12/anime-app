@@ -14,6 +14,8 @@ import okhttp3.Request
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * Собирает озвучки со всех источников для тайтла и отдаёт поток выбранной.
  * Источники опрашиваются параллельно; порядок в выдаче: AniLibria (нативный FHD) — первым.
@@ -26,6 +28,14 @@ class VideoRepository @Inject constructor(
 ) {
     private val sources: List<VideoSource> = listOf(anilibria, kodik)
     private val json = Json { ignoreUnknownKeys = true }
+
+    private inline fun <T> runSuspendCatching(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        Result.failure(e)
+    }
 
     /** Точные таймкоды опенинга и эндинга из AniSkip по MAL id + серии (через шлюз). */
     suspend fun skipTimes(malId: Long, episode: Int): Pair<Skip?, Skip?> = withContext(Dispatchers.IO) {
@@ -53,12 +63,12 @@ class VideoRepository @Inject constructor(
 
     suspend fun dubs(malId: Long, names: List<String>): List<Dub> = coroutineScope {
         sources
-            .map { src -> async { runCatching { src.findDubs(malId, names) }.getOrDefault(emptyList()) } }
+            .map { src -> async { runSuspendCatching { src.findDubs(malId, names) }.getOrDefault(emptyList()) } }
             .flatMap { it.await() }
     }
 
     suspend fun stream(dub: Dub, episode: Int): EpisodeStream? {
         val source = sources.firstOrNull { it.type == dub.source } ?: return null
-        return runCatching { source.episodeStream(dub, episode) }.getOrNull()
+        return runSuspendCatching { source.episodeStream(dub, episode) }.getOrNull()
     }
 }

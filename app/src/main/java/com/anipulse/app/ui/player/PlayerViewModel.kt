@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class PlayerUiState(
@@ -114,10 +115,22 @@ class PlayerViewModel @Inject constructor(
 
     private fun loadStream() {
         val s = _state.value
-        val dub = s.selectedDub ?: run {
-            _state.update { it.copy(loading = false, error = "Нет доступных озвучек") }
+        if (s.selectedDub == null) {
+            _state.update { it.copy(loading = true, error = null, stream = null) }
+            viewModelScope.launch {
+                val loadedDubs = runCatching { repo.dubs(animeId) }.getOrNull() ?: emptyList()
+                if (loadedDubs.isEmpty()) {
+                    _state.update { it.copy(loading = false, error = "Нет доступных озвучек") }
+                } else {
+                    session.dubs = loadedDubs
+                    val selected = loadedDubs.first()
+                    _state.update { it.copy(dubs = loadedDubs, selectedDub = selected) }
+                    loadStream()
+                }
+            }
             return
         }
+        val dub = s.selectedDub
         _state.update { it.copy(loading = true, error = null, stream = null) }
         viewModelScope.launch {
             val startOver = session.startOver && s.episode == session.episode
@@ -149,9 +162,10 @@ class PlayerViewModel @Inject constructor(
         if (animeId == 0L || durationMs <= 0) return
         val s = _state.value
         val watched = positionMs >= durationMs * 0.95
-        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
-            runCatching {
-                val value = EpisodeProgress(
+        viewModelScope.launch {
+            withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val value = EpisodeProgress(
                         animeId = animeId,
                         episode = s.episode,
                         positionMs = positionMs,
@@ -162,8 +176,9 @@ class PlayerViewModel @Inject constructor(
                         posterId = session.posterId,
                         totalEpisodes = session.totalEpisodes,
                     )
-                progressDao.upsert(value)
-                syncRepository.pushProgress(value)
+                    progressDao.upsert(value)
+                    syncRepository.pushProgress(value)
+                }
             }
         }
     }
@@ -179,21 +194,23 @@ class PlayerViewModel @Inject constructor(
         val s = _state.value
         val safePos = if (durationMs > 0) positionMs.coerceAtLeast(0L) else 0L
         val safeDur = if (durationMs > 0) durationMs else 0L
-        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
-            runCatching {
-                val value = EpisodeProgress(
-                    animeId = animeId,
-                    episode = s.episode,
-                    positionMs = safeDur.takeIf { it > 0 } ?: safePos,
-                    durationMs = safeDur,
-                    watched = true,
-                    dubId = s.selectedDub?.id,
-                    title = session.title,
-                    posterId = session.posterId,
-                    totalEpisodes = session.totalEpisodes,
-                )
-                progressDao.upsert(value)
-                syncRepository.pushProgress(value)
+        viewModelScope.launch {
+            withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val value = EpisodeProgress(
+                        animeId = animeId,
+                        episode = s.episode,
+                        positionMs = safeDur.takeIf { it > 0 } ?: safePos,
+                        durationMs = safeDur,
+                        watched = true,
+                        dubId = s.selectedDub?.id,
+                        title = session.title,
+                        posterId = session.posterId,
+                        totalEpisodes = session.totalEpisodes,
+                    )
+                    progressDao.upsert(value)
+                    syncRepository.pushProgress(value)
+                }
             }
         }
     }

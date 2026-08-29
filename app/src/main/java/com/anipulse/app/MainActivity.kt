@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -44,7 +45,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var gateway: GatewayApi
     @Inject lateinit var syncRepository: com.anipulse.app.data.SyncRepository
 
-    private val scope = MainScope()
     private var analyticsJob: Job? = null
     /** После обмена одноразового App Link-кода токен дополнительно проверяется через /auth/me
      * и сохраняется только после явного подтверждения пользователя. */
@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         com.anipulse.app.ui.common.AppVisibility.foreground.value = true
         analyticsJob?.cancel()
-        analyticsJob = scope.launch {
+        analyticsJob = lifecycleScope.launch {
             sendAnalytics("start")
             while (isActive) {
                 delay(60_000)
@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
         com.anipulse.app.ui.common.AppVisibility.foreground.value = false
         analyticsJob?.cancel()
         analyticsJob = null
-        scope.launch { sendAnalytics("stop") }
+        lifecycleScope.launch { sendAnalytics("stop") }
         super.onStop()
     }
 
@@ -86,7 +86,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splash = installSplashScreen()
+        splash.setKeepOnScreenCondition { false }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Android 13+: разрешение на пуши (каналы: ЛС, @упоминания, друзья, новые серии)
@@ -97,85 +98,29 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
         handleAuthDeepLink(intent)
-        scope.launch { runCatching { syncRepository.syncAll() } }
-        if (savedInstanceState == null) {
-            com.anipulse.app.notify.SoundPlayer.playMessageSound(this)
-        }
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { syncRepository.syncAll() } }
         setContent {
-            var showLaunch by remember { mutableStateOf(savedInstanceState == null) }
-            val betaNoticePrefs = remember {
-                getSharedPreferences("anipulse_onboarding", Context.MODE_PRIVATE)
-            }
-            var showBetaNotice by remember {
-                mutableStateOf(
-                    savedInstanceState == null &&
-                        !betaNoticePrefs.getBoolean("beta_notice_0_4_seen", false),
-                )
-            }
-            LaunchedEffect(showLaunch) {
-                if (showLaunch) {
-                    delay(1150)
-                    showLaunch = false
-                }
-            }
             Box {
-            AnimeLibRoot()
-            pendingLogin?.let { (token, nick) ->
-                AlertDialog(
-                    onDismissRequest = { pendingLogin = null },
-                    title = { Text("Подтвердите вход") },
-                    text = { Text("Войти как $nick?") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            settings.authToken = token
-                            settings.authNick = nick
-                            settings.authEmail = null
-                            scope.launch { runCatching { syncRepository.syncAll() } }
-                            sendBroadcast(Intent(ACTION_AUTH_CHANGED).setPackage(packageName))
-                            pendingLogin = null
-                            Toast.makeText(this@MainActivity, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
-                        }) { Text("Войти") }
-                    },
-                    dismissButton = { TextButton(onClick = { pendingLogin = null }) { Text("Отмена") } },
-                )
-            }
-            if (showLaunch) com.anipulse.app.ui.common.LaunchPulseOverlay()
-            if (!showLaunch && showBetaNotice) {
-                AlertDialog(
-                    onDismissRequest = {},
-                    icon = {
-                        androidx.compose.foundation.layout.Box(
-                            androidx.compose.ui.Modifier
-                                .background(androidx.compose.ui.graphics.Color(0x33FF4D8D), androidx.compose.foundation.shape.CircleShape)
-                                .padding(14.dp),
-                        ) { Icon(Icons.Filled.Info, null, tint = androidx.compose.ui.graphics.Color(0xFFFF4D8D)) }
-                    },
-                    title = { Text("AniPulse в бета-режиме", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
-                    text = {
-                        Text(
-                            "В приложении ещё могут встречаться ошибки и недоработки. " +
-                                "Спасибо за понимание и помощь в развитии AniPulse!\n\n" +
-                                "Если захотите сообщить о проблеме, отправьте баг-репорт через профиль.",
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                betaNoticePrefs.edit()
-                                    .putBoolean("beta_notice_0_4_seen", true)
-                                    .apply()
-                                showBetaNotice = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF4D8D)),
-                        ) {
-                            Text("Понятно")
-                        }
-                    },
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-                    containerColor = androidx.compose.ui.graphics.Color(0xFF15151F),
-                    tonalElevation = 0.dp,
-                )
-            }
+                AnimeLibRoot()
+                pendingLogin?.let { (token, nick) ->
+                    AlertDialog(
+                        onDismissRequest = { pendingLogin = null },
+                        title = { Text("Подтвердите вход") },
+                        text = { Text("Войти как $nick?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                settings.authToken = token
+                                settings.authNick = nick
+                                settings.authEmail = null
+                                lifecycleScope.launch { runCatching { syncRepository.syncAll() } }
+                                sendBroadcast(Intent(ACTION_AUTH_CHANGED).setPackage(packageName))
+                                pendingLogin = null
+                                Toast.makeText(this@MainActivity, "Добро пожаловать, $nick!", Toast.LENGTH_LONG).show()
+                            }) { Text("Войти") }
+                        },
+                        dismissButton = { TextButton(onClick = { pendingLogin = null }) { Text("Отмена") } },
+                    )
+                }
             }
         }
     }
@@ -187,7 +132,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        scope.cancel()
+        analyticsJob?.cancel()
     }
 
     /** Возврат только по проверенной Android App Link. В URL находится одноразовый код, не bearer-токен. */
@@ -204,7 +149,7 @@ class MainActivity : ComponentActivity() {
 
     private fun exchangeAndPromptLogin(code: String) {
         if (code.length !in 32..128) return
-        scope.launch {
+        lifecycleScope.launch {
             val response = runCatching {
                 gateway.exchangeOAuthCode(com.anipulse.app.data.OAuthCodeRequest(code))
             }.getOrNull()
@@ -216,7 +161,7 @@ class MainActivity : ComponentActivity() {
 
     /** Токен подтверждается сервером (не доверяем query-параметру nick) до показа диалога входа. */
     private fun validateAndPromptLogin(token: String) {
-        scope.launch {
+        lifecycleScope.launch {
             val nick = runCatching { gateway.me("Bearer $token") }.getOrNull()?.nick
             if (nick != null) {
                 pendingLogin = token to nick

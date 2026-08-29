@@ -1,0 +1,117 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master, dev]
+  schedule:
+    # Запуск каждую неделю в понедельник в 04:00 UTC.
+    # Нужен именно регулярный прогон: уязвимость в зависимости появляется не в момент
+    # коммита, а когда её опубликовали — код при этом не менялся.
+    - cron: '0 4 * * 1'
+
+# Минимальные права по умолчанию. security-events: write нужен, чтобы находки
+# попадали во вкладку Security репозитория, а не терялись в логах прогона.
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: 🔑 Gitleaks (Поиск утечек секретов)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Полная история обязательна: секрет чаще всего лежит в старом коммите,
+          # а не в последнем. При fetch-depth: 1 такой скан бесполезен.
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  semgrep:
+    name: 🛡️ Semgrep (SAST статический анализ)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          python3 -m pip install --quiet semgrep
+          # Пины наборов правил вместо «auto»: auto тянет меняющийся набор из сети,
+          # из-за чего сборка падает от правок на стороне Semgrep, а не от вашего кода.
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --sarif --output semgrep.sarif \
+            --severity ERROR \
+            --metrics off || true
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  npm-audit:
+    name: 📦 NPM Audit (Уязвимости в зависимостях)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run npm audit in every package
+        run: |
+          # Ищем все package.json, кроме node_modules — вместо жёсткого списка путей,
+          # который молча пропускал бы новые подпроекты.
+          found=0
+          while IFS= read -r pkg; do
+            dir=$(dirname "$pkg")
+            echo "── Проверяю $dir"
+            found=1
+            # --audit-level=high намеренно: падение на low/moderate в транзитивных
+            # зависимостях приучает игнорировать красный CI, и тогда пропускают критичное.
+            (cd "$dir" && npm audit --omit=dev --audit-level=high) || exit 1
+          done < <(find . -name package.json -not -path '*/node_modules/*' -not -path './.git/*')
+          [ "$found" -eq 0 ] && echo "package.json не найден — пропускаю."
+          exit 0
+
+  # Проверка того, что реально отдаёт живой сайт. Статический анализ не видит
+  # ни забытого .env в докруте, ни отсутствующих заголовков, ни включённого листинга.
+  live-site:
+    name: 🌐 Проверка живого сайта
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Задайте переменную SITE_URL в Settings → Secrets and variables → Variables
+    if: ${{ vars.SITE_URL != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run site security scan
+        run: |
+          chmod +x tools/scan-site.sh 2>/dev/null || true
+          if [ -f tools/scan-site.sh ]; then
+            bash tools/scan-site.sh "${{ vars.SITE_URL }}"
+          else
+            echo "tools/scan-site.sh не найден в репозитории — пропускаю."
+          fi

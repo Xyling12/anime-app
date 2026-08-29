@@ -62,10 +62,20 @@ class KodikSource @Inject constructor(
         if (quality.isEmpty()) null else EpisodeStream(byQuality = quality)
     }
 
-    private fun httpGet(url: String): String? =
-        runCatching {
-            client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
-                if (resp.isSuccessful) resp.body?.string() else null
+    private suspend fun httpGet(url: String): String? = withContext(Dispatchers.IO) {
+        var lastResult: String? = null
+        for (attempt in 0..2) {
+            val res = runCatching {
+                client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string() else null
+                }
+            }.getOrNull()
+            if (res != null) {
+                lastResult = res
+                break
             }
-        }.getOrNull()
+            if (attempt < 2) kotlinx.coroutines.delay(400L * (attempt + 1))
+        }
+        lastResult
+    }
 }

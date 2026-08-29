@@ -5,6 +5,8 @@ import com.anipulse.app.data.anilibria.AlRelease
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * AniLibria — собственная озвучка студии. Отдаёт прямые HLS-ссылки (480/720/1080)
  * и таймкоды опенинга/эндинга, поэтому играется нативно в ExoPlayer.
@@ -35,7 +37,7 @@ class AnilibriaSource @Inject constructor(
 
     override suspend fun episodeStream(dub: Dub, episode: Int): EpisodeStream? {
         val releaseId = dub.ref.toLongOrNull() ?: return null
-        val release = runCatching { api.release(releaseId) }.getOrNull() ?: return null
+        val release = try { api.release(releaseId) } catch (e: CancellationException) { throw e } catch (e: Throwable) { null } ?: return null
         val ep = release.episodes.firstOrNull { it.ordinal.toInt() == episode }
             ?: release.episodes.getOrNull(episode - 1)
             ?: return null
@@ -61,7 +63,7 @@ class AnilibriaSource @Inject constructor(
     private suspend fun resolveRelease(names: List<String>): AlRelease? {
         val queries = names.filter { it.isNotBlank() }.map { it.normalize() }
         for (name in names.filter { it.isNotBlank() }) {
-            val results = runCatching { api.search(name) }.getOrNull().orEmpty()
+            val results = try { api.search(name) } catch (e: CancellationException) { throw e } catch (e: Throwable) { emptyList() }
             val match = results.firstOrNull { r ->
                 val cand = listOfNotNull(r.name?.main, r.name?.english).map { it.normalize() }
                 cand.any { c -> queries.any { q -> namesMatch(c, q) } }

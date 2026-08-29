@@ -18,40 +18,7 @@ private const val TAG = "SettingsStore"
 class SettingsStore @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val prefs = createEncryptedPrefs(context)
-
-    private fun createEncryptedPrefs(context: Context): SharedPreferences {
-        return try {
-            createEncryptedPrefsInternal(context)
-        } catch (e: Exception) {
-            // Файл настроек повреждён или несовместим с текущим ключом шифрования
-            // (например, после смены ключа хранилища или битого апдейта) — не должно
-            // намертво крашить приложение у существующих пользователей. Удаляем старый
-            // файл и создаём хранилище заново.
-            when (e) {
-                is GeneralSecurityException, is java.io.IOException -> {
-                    Log.w(TAG, "Failed to open encrypted prefs, recreating", e)
-                    context.deleteSharedPreferences(PREFS_FILE_NAME)
-                    createEncryptedPrefsInternal(context)
-                }
-                else -> throw e
-            }
-        }
-    }
-
-    private fun createEncryptedPrefsInternal(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
 
     var autoSkipOpening: Boolean
         get() = prefs.getBoolean("auto_skip_opening", false)

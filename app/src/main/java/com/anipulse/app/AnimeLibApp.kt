@@ -23,49 +23,42 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
             .okHttpClient {
                 okhttp3.OkHttpClient.Builder()
                     .addInterceptor { chain ->
-                        var res = chain.proceed(chain.request())
                         var tries = 0
-                        while (!res.isSuccessful && tries < 2) {
-                            res.close(); tries++
-                            res = chain.proceed(chain.request())
+                        var lastError: java.io.IOException? = null
+                        var res: okhttp3.Response? = null
+                        while (tries <= 2) {
+                            try {
+                                res = chain.proceed(chain.request())
+                                if (res.isSuccessful || tries == 2) break
+                                res.close()
+                            } catch (e: java.io.IOException) {
+                                lastError = e
+                            }
+                            tries++
                         }
-                        res
+                        res ?: throw (lastError ?: java.io.IOException("Image load failed"))
                     }
                     .build()
             }
-            .crossfade(false) // без анимации появления — по фидбеку владельца
+            .crossfade(false)
             .build()
-
-    /**
-     * Через `dagger.Lazy`, а не напрямую: обычное field-инжектирование построило бы
-     * SettingsStore прямо здесь, на главном потоке, — ровно то, чего мы избегаем.
-     */
-    @javax.inject.Inject lateinit var settingsStore: dagger.Lazy<com.anipulse.app.data.SettingsStore>
 
     override fun onCreate() {
         super.onCreate()
-        // Прогрев зашифрованных настроек в фоне.
-        //
-        // SettingsStore создаёт EncryptedSharedPreferences, а первый запуск — это генерация
-        // мастер-ключа в Android Keystore: сотни миллисекунд, иногда секунды. Читают его
-        // MainActivity и RootMenuViewModel (nick/avatar/theme прямо в инициализаторах полей),
-        // то есть на главном потоке до первого кадра — на холодном старте это давало ANR.
-        // Синглтон Hilt, поэтому построенный здесь экземпляр переиспользуется; если UI успеет
-        // попросить его раньше, он дождётся той же блокировки, но обычно ключ уже готов.
-        Thread({ runCatching { settingsStore.get() } }, "settings-warmup").start()
-        NotifyWorker.ensureChannels(this)
-        val notifyConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .build()
-        // Фоновая проверка откладывается без сети и при низком заряде.
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "anipulse-notify",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            PeriodicWorkRequestBuilder<NotifyWorker>(30, TimeUnit.MINUTES)
-                .setConstraints(notifyConstraints)
-                .build(),
-        )
+        Thread({
+            NotifyWorker.ensureChannels(this)
+            val notifyConstraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiresBatteryNotLow(true)
+                .build()
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "anipulse-notify",
+                ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<NotifyWorker>(30, TimeUnit.MINUTES)
+                    .setConstraints(notifyConstraints)
+                    .build(),
+            )
+        }, "anipulse-init").start()
     }
 
 }

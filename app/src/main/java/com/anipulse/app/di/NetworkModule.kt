@@ -27,6 +27,7 @@ object NetworkModule {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
+        .retryOnConnectionFailure(true)
         .addInterceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()
