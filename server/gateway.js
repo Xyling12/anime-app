@@ -851,6 +851,10 @@ function sanitizeSyncProgress(value) {
     dubId: sanitizeText(value.dubId, 120) || null, title: sanitizeText(value.title, 200),
     posterId: Math.max(0, Math.trunc(Number(value.posterId) || animeId)),
     totalEpisodes: Math.min(100000, Math.max(0, Math.trunc(Number(value.totalEpisodes) || 0))), updatedAt,
+    // Отметка удаления, как у избранного. Без неё удаление из «Продолжить
+    // просмотр» не переживало синхронизацию: клиент стирал запись у себя, сервер
+    // про это не знал и возвращал тайтл обратно при следующем заходе.
+    deleted: value.deleted === true,
   };
 }
 function sanitizeSyncFavorite(value) {
