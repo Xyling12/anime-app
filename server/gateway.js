@@ -323,7 +323,18 @@ function handleAppVersion(res) {
   catch (e) { return jsonRes(res, 200, { versionCode: 0 }); }
 }
 function handleApkDownload(req, res) {
-  const apkPath = dataPath('AniPulse-latest.apk');
+  let versionName = '';
+  try {
+    const versionData = JSON.parse(fs.readFileSync(dataPath('app-version.json'), 'utf8'));
+    if (versionData && versionData.versionName) {
+      versionName = versionData.versionName.startsWith('v') ? versionData.versionName : `v${versionData.versionName}`;
+    }
+  } catch (_) {}
+  const downloadFilename = versionName ? `AniPulse-${versionName}.apk` : 'AniPulse-latest.apk';
+  const versionedApkPath = dataPath(downloadFilename);
+  const latestApkPath = dataPath('AniPulse-latest.apk');
+  const apkPath = fs.existsSync(versionedApkPath) ? versionedApkPath : latestApkPath;
+
   fs.stat(apkPath, (error, stat) => {
     if (error || !stat.isFile()) { res.writeHead(404); return res.end('no apk'); }
     if (req.headers['x-anipulse-monitor'] !== '1') {
@@ -333,7 +344,7 @@ function handleApkDownload(req, res) {
     }
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
-      'Content-Disposition': 'attachment; filename="AniPulse.apk"',
+      'Content-Disposition': `attachment; filename="${downloadFilename}"`,
       'Content-Length': stat.size,
     });
     const stream = fs.createReadStream(apkPath);
