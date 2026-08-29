@@ -392,12 +392,30 @@ const AUTH_SECRET = fs.readFileSync(SECRET_FILE, 'utf8').trim();
 // Rate limiting: попытки входа по IP, спам-лимиты по пользователю
 const ipHits = new Map();   // ip -> [timestamps]
 const userHits = new Map(); // key -> [timestamps]
+const RATE_LIMIT_MAX_KEYS = 5000;
+const RATE_LIMIT_MAX_WINDOW_MS = 24 * 60 * 60 * 1000; // самое длинное окно из используемых (жалобы: 10/сутки)
+// Раньше при переполнении карта очищалась целиком (map.clear()). Это обнуляло счётчики
+// попыток входа сразу для всех: ботнету достаточно было засорить карту 5000 адресов,
+// чтобы открыть себе окно на перебор паролей. Теперь вытесняем только неактуальное.
+function evictRateLimit(map, now) {
+  for (const [key, hits] of map) {
+    if (!hits.length || now - hits[hits.length - 1] >= RATE_LIMIT_MAX_WINDOW_MS) map.delete(key);
+  }
+  if (map.size <= RATE_LIMIT_MAX_KEYS) return;
+  // Вытесняем в первую очередь записи с наименьшим числом попыток. Вытеснение
+  // «самых старых» здесь не годится: запись атакующего создаётся раньше флуда,
+  // и он вытолкнул бы собственную блокировку. Запись, которая кого-то реально
+  // тормозит, всегда имеет много отметок — и переживает чистку.
+  const byRisk = [...map.entries()].sort((a, b) =>
+    a[1].length - b[1].length || a[1][a[1].length - 1] - b[1][b[1].length - 1]);
+  for (const [key] of byRisk.slice(0, map.size - RATE_LIMIT_MAX_KEYS)) map.delete(key);
+}
 function tooMany(map, key, limit, windowMs) {
   const now = Date.now();
   const arr = (map.get(key) || []).filter(t => now - t < windowMs);
   if (arr.length >= limit) { map.set(key, arr); return true; }
   arr.push(now); map.set(key, arr);
-  if (map.size > 5000) map.clear(); // защита от разрастания памяти
+  if (map.size > RATE_LIMIT_MAX_KEYS) evictRateLimit(map, now);
   return false;
 }
 function clientIp(req) {
@@ -408,12 +426,29 @@ function clientIp(req) {
 }
 // Как и loadJson ниже: отсутствие файла — норма (дефолт), битый файл — throw,
 // чтобы следующий saveUsers не затёр всю базу аккаунтов пустым дефолтом.
+// verifyToken дёргает loadUsers на КАЖДЫЙ запрос к API, включая неаутентифицированные:
+// без кеша любой запрос с мусорным Bearer заставлял сервер прочитать и распарсить
+// весь users.json. Кешируем по mtime+размеру и отдаём копию — вызывающий код
+// мутирует результат перед saveUsers, поэтому общий объект наружу отдавать нельзя.
+let _usersCache = null; // { key, db }
+function invalidateUsersCache() { _usersCache = null; }
 function loadUsers() {
+  let stat;
+  try { stat = fs.statSync(USERS_FILE); } catch (e) { return { seq: 0, users: [] }; }
+  const key = `${stat.mtimeMs}:${stat.size}`;
+  if (_usersCache && _usersCache.key === key) return structuredClone(_usersCache.db);
   let raw;
   try { raw = fs.readFileSync(USERS_FILE, 'utf8'); } catch (e) { return { seq: 0, users: [] }; }
-  try { return JSON.parse(raw); } catch (e) { throw new Error(`corrupt users store: ${e.message}`); }
+  let db;
+  try { db = JSON.parse(raw); } catch (e) { throw new Error(`corrupt users store: ${e.message}`); }
+  _usersCache = { key, db };
+  return structuredClone(db);
 }
-function saveUsers(db) { fs.writeFileSync(USERS_FILE + '.tmp', JSON.stringify(db, null, 1)); fs.renameSync(USERS_FILE + '.tmp', USERS_FILE); }
+function saveUsers(db) {
+  fs.writeFileSync(USERS_FILE + '.tmp', JSON.stringify(db, null, 1));
+  fs.renameSync(USERS_FILE + '.tmp', USERS_FILE);
+  invalidateUsersCache(); // не полагаемся на разрешение mtime: сбрасываем явно
+}
 function hashPassword(pw, salt) {
   salt = salt || crypto.randomBytes(16).toString('hex');
   return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex');
@@ -596,6 +631,12 @@ async function handleAuth(req, res, path) {
   if ((path === 'register' || path === 'login') && req.method === 'POST') {
     if (tooMany(ipHits, 'auth:' + clientIp(req), 5, 60 * 1000)) {
       return jsonRes(res, 429, { error: 'Слишком много попыток, подождите минуту' });
+    }
+    // Ответ «Почта уже зарегистрирована» по своей природе подтверждает наличие
+    // аккаунта. Убрать его нельзя, не сломав контракт с Android-клиентом, поэтому
+    // перебор почт душим отдельным часовым лимитом поверх минутного.
+    if (path === 'register' && tooMany(ipHits, 'reg:' + clientIp(req), 10, 60 * 60 * 1000)) {
+      return jsonRes(res, 429, { error: 'Слишком много регистраций с этого адреса, попробуйте позже' });
     }
   }
   if (path === 'logoutall' && req.method === 'POST') {
@@ -810,14 +851,20 @@ function syncResponse(entry) {
 async function handleSync(req, res) {
   const user = authUser(req);
   if (!user) return jsonRes(res, 401, { error: 'auth' });
-  const all = loadJson(SYNC_FILE, { users: {} });
-  all.users = all.users || {};
-  const entry = all.users[user.id] || { progress: {}, favorites: {} };
-  entry.progress = entry.progress || {}; entry.favorites = entry.favorites || {};
-  if (req.method === 'GET') return jsonRes(res, 200, syncResponse(entry));
+  const readEntry = (store) => {
+    store.users = store.users || {};
+    const e = store.users[user.id] || { progress: {}, favorites: {} };
+    e.progress = e.progress || {}; e.favorites = e.favorites || {};
+    return e;
+  };
+  if (req.method === 'GET') return jsonRes(res, 200, syncResponse(readEntry(loadJson(SYNC_FILE, { users: {} }))));
   if (req.method !== 'POST') return jsonRes(res, 405, { error: 'method' });
   if (tooMany(userHits, 'sync:' + user.id, 120, 60 * 60 * 1000)) return jsonRes(res, 429, { error: 'rate limit' });
   const body = await readBody(req);
+  // Снапшот берём ПОСЛЕ await: взятый до него затирал бы записи параллельных
+  // синхронизаций других аккаунтов целиком (lost update по всему файлу).
+  const all = loadJson(SYNC_FILE, { users: {} });
+  const entry = readEntry(all);
   for (const raw of Array.isArray(body && body.progress) ? body.progress.slice(0, 5000) : []) {
     const item = sanitizeSyncProgress(raw); if (!item) continue;
     const key = item.animeId + ':' + item.episode, old = entry.progress[key];
