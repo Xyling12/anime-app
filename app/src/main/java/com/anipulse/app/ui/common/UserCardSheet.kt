@@ -1,0 +1,209 @@
+package com.anipulse.app.ui.common
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.anipulse.app.data.GatewayApi
+import com.anipulse.app.data.FriendActionRequest
+import com.anipulse.app.data.UserCard
+import com.anipulse.app.data.BlockRequest
+import com.anipulse.app.data.ReportRequest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.launch
+
+/**
+ * Карточка пользователя (по тапу на аватар): аватар, онлайн, био, статистика,
+ * статистика просмотров, кнопки «Пожаловаться» и «Заблокировать» (для модерации комментариев).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UserCardSheet(
+    nick: String,
+    gateway: GatewayApi,
+    token: String?,
+    onDismiss: () -> Unit,
+) {
+    var card by remember { mutableStateOf<UserCard?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var friendState by remember { mutableStateOf<String?>(null) }
+    var blocked by remember { mutableStateOf(false) }
+    var reportOpen by remember { mutableStateOf(false) }
+    var actionMessage by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(nick) {
+        runCatching { gateway.userCard(token?.let { "Bearer $it" }, nick) }
+            .onSuccess { card = it; friendState = it.friendState; blocked = it.blocked }
+            .onFailure { error = "Не удалось загрузить профиль" }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        val c = card
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            when {
+                error != null -> Text(error!!, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                c == null -> Text("Загрузка…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    Box {
+                        Avatar(c.avatar, 84.dp, nick = c.nick, rev = c.avatarRev, accountId = c.userId)
+                        if (c.online) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2ECC71)),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(c.nick, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (c.online) "онлайн" else c.lastSeen?.let {
+                            "был(а) " + SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(it))
+                        } ?: "",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (c.online) Color(0xFF2ECC71) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (c.bio.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(c.bio, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                    }
+                    c.createdAt?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "В AniPulse с " + SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(it)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        StatCell("${c.stats?.watchedEpisodes ?: 0}", "серий")
+                        StatCell("${(c.stats?.watchMinutes ?: 0) / 60}ч", "просмотра")
+                        StatCell("${c.stats?.startedTitles ?: 0}", "тайтлов")
+                        StatCell("${c.commentsCount}", "комментов")
+                    }
+                    c.favoriteGenre?.let {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Любимый жанр: $it",
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    if (token != null && friendState != "self") {
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching {
+                                            gateway.blockUser("Bearer $token", BlockRequest(c.nick, if (blocked) "unblock" else "block"))
+                                        }.onSuccess {
+                                            blocked = it.blocked
+                                            friendState = "none"
+                                            actionMessage = if (it.blocked) {
+                                                "Пользователь заблокирован"
+                                            } else {
+                                                "Блокировка снята"
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) { Text(if (blocked) "Разблокировать" else "Заблокировать", maxLines = 1) }
+                            OutlinedButton(onClick = { reportOpen = true }, modifier = Modifier.weight(1f)) {
+                                Text("Пожаловаться")
+                            }
+                        }
+                        actionMessage?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(20.dp))
+                }
+            }
+        }
+    }
+    if (reportOpen && token != null) {
+        val reasons = listOf("Оскорбления или травля", "Спам или мошенничество", "Запрещённый контент", "Другое нарушение")
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { reportOpen = false },
+            title = { Text("Причина жалобы") },
+            text = {
+                Column {
+                    reasons.forEach { reason ->
+                        Text(
+                            reason,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                scope.launch {
+                                    runCatching {
+                                        gateway.report("Bearer $token", ReportRequest("profile", nick, nick, reason = reason))
+                                    }.onSuccess { actionMessage = "Жалоба отправлена" }
+                                    reportOpen = false
+                                }
+                            }.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { reportOpen = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+@Composable
+private fun StatCell(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}

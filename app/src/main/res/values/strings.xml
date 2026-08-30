@@ -1,0 +1,5 @@
+﻿<resources>
+    <string name="app_name">AniPulse Beta</string>
+    <string name="widget_continue_title">AniPulse: Продолжить</string>
+    <string name="widget_continue_desc">Быстрый доступ к последней просмотренной серии</string>
+</resources>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Буква «А» с градиентом бренда -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M54,22 L81,88 L66.5,88 L61,74 L47,74 L41.5,88 L27,88 Z M54,42 L58.7,62 L49.3,62 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30" android:startY="30"
+                android:endX="80" android:endY="88"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF7C4DFF" />
+                <item android:offset="1" android:color="#FFFF4D8D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Линия пульса сквозь букву -->
+    <path
+        android:pathData="M13,68 L36,68 L44,58 L52,78 L58.5,61 L64,68 L95,68"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="13" android:startY="68"
+                android:endX="95" android:endY="68"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF7C4DFF" />
+                <item android:offset="1" android:color="#FFFF4D8D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

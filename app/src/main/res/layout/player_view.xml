@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TextureView вместо дефолтного SurfaceView: на некоторых реальных устройствах
+  SurfaceView не компонуется корректно поверх/под Compose-анимациями
+  (AnimatedVisibility, SharedTransitionLayout) — видео остаётся чёрным экраном,
+  хотя плеер фактически воспроизводит. На эмуляторе (программный рендер) не
+  воспроизводится, поэтому баг было сложно поймать.
+-->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/player_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    app:surface_type="texture_view" />

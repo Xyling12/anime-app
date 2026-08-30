@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".AnimeLibApp"
+        android:label="AniPulse Beta"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.AnimeLib"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:theme="@style/Theme.AnimeLib.Splash"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:supportsPictureInPicture="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Возврат OAuth через проверенную HTTPS App Link с одноразовым кодом. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="anipulsetv.ru"
+                    android:path="/auth/android-callback" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".widget.AniPulseWidgetProvider"
+            android:exported="true"
+            android:label="AniPulse: Продолжить">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_continue_info" />
+        </receiver>
+    </application>
+</manifest>

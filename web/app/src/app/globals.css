@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+/*
+  Дизайн-система AniPulse Web — современная, responsive-first.
+  Тёмная по умолчанию, светлая по data-theme. Фирменные фиолет→розовый.
+*/
+:root {
+  --bg: #08080d;
+  --bg-elevated: #0f0f17;
+  --surface: #14141e;
+  --surface-2: #1b1b28;
+  --surface-hover: #232333;
+  --text: #f4f2f9;
+  --text-muted: #a09db4;
+  --text-dim: #6b6880;
+  --primary: #ff4d8d;
+  --accent: #7c4dff;
+  --border: #24242f;
+  --border-light: #2e2e3c;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --glow: 0 0 40px rgba(255, 77, 141, 0.25);
+}
+
+:root[data-theme="light"] {
+  --bg: #f7f7fb;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0f0f5;
+  --surface-hover: #e8e8f0;
+  --text: #14141c;
+  --text-muted: #5c5a70;
+  --text-dim: #8a879c;
+  --primary: #ff2d78;
+  --accent: #6b3dff;
+  --border: #e4e4ec;
+  --border-light: #d8d8e4;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --glow: 0 0 40px rgba(255, 77, 141, 0.15);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  min-height: 100%;
+}
+
+body {
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+body:has([data-design-studio]) > header,
+body:has([data-design-studio]) > nav,
+body:has([data-design-studio]) > footer {
+  display: none !important;
+}
+body:has([data-design-studio]) > main {
+  padding-bottom: 0 !important;
+}
+body:has([data-pulse-app]) > header,
+body:has([data-pulse-app]) > nav,
+body:has([data-pulse-app]) > footer {
+  display: none !important;
+}
+body:has([data-pulse-app]) > main {
+  padding-bottom: 0 !important;
+}
+
+/* Safe area utilities */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left { padding-left: env(safe-area-inset-left); }
+.safe-right { padding-right: env(safe-area-inset-right); }
+
+/* Фон с мягким свечением сверху */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(1200px 600px at 50% -200px, rgba(124, 77, 255, 0.12), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pulse-gradient {
+  background: linear-gradient(135deg, var(--accent), var(--primary));
+}
+.pulse-text-gradient {
+  background: linear-gradient(135deg, #9d7bff, var(--primary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.glass {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.site-container {
+  width: min(100% - 32px, 1440px);
+  margin-inline: auto;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.page-shell {
+  width: min(100% - 32px, 1280px);
+  margin-inline: auto;
+  padding-block: 32px 70px;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+@media (min-width: 640px) {
+  .site-container {
+    width: min(100% - 48px, 1440px);
+  }
+  .page-shell {
+    width: min(100% - 48px, 1280px);
+    padding-block: 48px 80px;
+  }
+}
+
+.panel { border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, transparent); border-radius: 24px; }
+.eyebrow { color: var(--primary); font-size: .75rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.section-title { font-size: clamp(1.25rem, 2vw, 2rem); font-weight: 800; letter-spacing: -.035em; }
+.soft-ring { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-light) 75%, transparent); }
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Плавные ховеры карточек */
+.card-hover {
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.25s ease;
+}
+@media (hover: hover) {
+  .card-hover:hover {
+    transform: translateY(-6px);
+    box-shadow: var(--shadow), var(--glow);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@media (max-width: 767px) {
+  .site-container, .page-shell { width: min(100% - 24px, 100%); }
+  .page-shell { padding-block: 20px 80px; }
+}
