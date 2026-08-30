@@ -1,5 +1,32 @@
+# ---------------------------------------------------------------
 # kotlinx.serialization
+# ---------------------------------------------------------------
+# Пакет приложения — com.anipulse.app. До 0.7.2 здесь стояло com.animelib.app
+# (имя до переименования), поэтому правила ни на что не распространялись:
+# R8 их молча применял к несуществующим классам.
 -keepattributes *Annotation*, InnerClasses
--keep,includedescriptorclasses class com.animelib.app.**$$serializer { *; }
--keepclassmembers class com.animelib.app.** { *** Companion; }
--keepclasseswithmembers class com.animelib.app.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class com.anipulse.app.**$$serializer { *; }
+-keepclassmembers class com.anipulse.app.** { *** Companion; }
+-keepclasseswithmembers class com.anipulse.app.** { kotlinx.serialization.KSerializer serializer(...); }
+
+# ---------------------------------------------------------------
+# Вырезание логов из release-сборки
+# ---------------------------------------------------------------
+# Логи в проде — канал утечки: logcat читают другие приложения с нужным
+# разрешением, отладочные мосты и системы сбора крашей. Даже безобидная на вид
+# запись выдаёт внутренние адреса, ники и структуру запросов, а одна забытая
+# строка с токеном сводит на нет шифрование хранилища.
+#
+# assumenosideeffects безопасен только потому, что возвращаемое значение Log.*
+# нигде не используется — иначе R8 вырезал бы вычисление аргументов вместе с вызовом.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
+# ---------------------------------------------------------------
+# Проверка целостности
+# ---------------------------------------------------------------
+# Не переименовывать: имя класса встречается в стектрейсах при разборе инцидентов.
+-keep class com.anipulse.app.data.AppIntegrity { *; }

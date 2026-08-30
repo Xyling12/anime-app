@@ -46,10 +46,24 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
             }
+
+            // SHA-256 сертификата подписи для проверки целостности на старте (см. AppIntegrity).
+            // Значение берётся из keystore.properties и в git не попадает. Если его нет,
+            // проверка выключается: иначе сборка из публичных исходников не запускалась бы.
+            //
+            // Строка формата "AA:BB:...", как её печатает keytool -list -v.
+            val expectedFingerprint = keystoreProperties.getProperty("releaseCertSha256").orEmpty()
+            buildConfigField("String", "RELEASE_CERT_SHA256", "\"$expectedFingerprint\"")
+        }
+        debug {
+            // Поле должно существовать во всех вариантах, иначе BuildConfig не скомпилируется.
+            // Пустая строка = проверка целостности отключена (отладочная подпись своя у каждого).
+            buildConfigField("String", "RELEASE_CERT_SHA256", "\"\"")
         }
     }
     compileOptions {

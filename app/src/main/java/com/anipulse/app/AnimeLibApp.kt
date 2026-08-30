@@ -46,6 +46,14 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         Thread({
+            // Фоновая работа не должна пережить проверку подписи: воркер ходит на сервер
+            // с токеном раз в 30 минут, и в перепакованной сборке он продолжал бы качать
+            // данные аккаунта даже после того, как экран закрылся. MainActivity показывает
+            // пользователю причину, а планирование гасится здесь — до первого запуска.
+            if (!com.anipulse.app.data.AppIntegrity.isSignatureValid(this)) {
+                runCatching { WorkManager.getInstance(this).cancelUniqueWork("anipulse-notify") }
+                return@Thread
+            }
             NotifyWorker.ensureChannels(this)
             val notifyConstraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)

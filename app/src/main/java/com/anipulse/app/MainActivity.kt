@@ -89,6 +89,29 @@ class MainActivity : ComponentActivity() {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { false }
         super.onCreate(savedInstanceState)
+
+        // Подпись сверяется до всего остального: если APK перепакован, дальше идти незачем.
+        // Токен при этом стирается — в изменённой сборке ему верить нельзя, а именно за ним
+        // такие пересборки обычно и делают.
+        if (!com.anipulse.app.data.AppIntegrity.isSignatureValid(this)) {
+            settings.clearAuth()
+            Toast.makeText(
+                this,
+                "Эта сборка изменена и не является официальной. Скачайте AniPulse с anipulsetv.ru",
+                Toast.LENGTH_LONG,
+            ).show()
+            // finish() закрывает только экран, процесс остаётся жить и может доработать
+            // уже запущенные корутины. В изменённой сборке этого допускать нельзя,
+            // поэтому после показа сообщения процесс завершается целиком.
+            finishAndRemoveTask()
+            // Именно Handler главного лупера, а не View.postDelayed: из onCreate выходим
+            // до setContent, decorView ни к чему не присоединён, и его очередь никогда
+            // не выполнится — процесс тогда остаётся жить (проверено на эмуляторе).
+            android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed({ kotlin.system.exitProcess(0) }, 3_000)
+            return
+        }
+
         enableEdgeToEdge()
         // Android 13+: разрешение на пуши (каналы: ЛС, @упоминания, друзья, новые серии)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
