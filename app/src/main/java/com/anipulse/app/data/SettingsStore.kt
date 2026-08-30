@@ -13,6 +13,7 @@ import javax.inject.Singleton
 private const val PREFS_FILE_NAME = "anipulse_settings"
 private const val ENCRYPTED_PREFS_FILE_NAME = "anipulse_settings_secure"
 private const val TAG = "SettingsStore"
+private const val KEY_REAUTH_NOTICE = "reauth_notice_pending"
 
 /**
  * Пользовательские настройки в EncryptedSharedPreferences: значения шифруются AES-256-GCM
@@ -55,7 +56,10 @@ class SettingsStore @Inject constructor(
 
         val fallback = context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
         // Токен в незашифрованном виде не храним ни при каких условиях.
-        fallback.edit().remove("auth_token").apply()
+        val hadToken = !fallback.getString("auth_token", null).isNullOrBlank()
+        val editor = fallback.edit().remove("auth_token")
+        if (hadToken) editor.putBoolean(KEY_REAUTH_NOTICE, true)
+        editor.apply()
         return fallback
     }
 
@@ -93,6 +97,12 @@ class SettingsStore @Inject constructor(
                     is String -> editor.putString(key, value)
                     is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
                 }
+            }
+            // Если токен был, пользователь окажется разлогинен без всякого действия со своей
+            // стороны — это выглядит как поломка. Ставим отметку, чтобы объяснить причину
+            // при первом запуске (диалог в MainActivity).
+            if (!legacy.getString("auth_token", null).isNullOrBlank()) {
+                editor.putBoolean(KEY_REAUTH_NOTICE, true)
             }
             editor.apply()
             context.deleteSharedPreferences(PREFS_FILE_NAME)
@@ -149,6 +159,14 @@ class SettingsStore @Inject constructor(
                 .commit() // именно commit: если процесс упадёт до записи, база станет нечитаемой
             return generated
         }
+
+    /**
+     * Нужно ли объяснить пользователю, почему он оказался разлогинен после обновления.
+     * Ставится один раз при переносе настроек, снимается после показа диалога.
+     */
+    var reauthNoticePending: Boolean
+        get() = prefs.getBoolean(KEY_REAUTH_NOTICE, false)
+        set(v) = prefs.edit().putBoolean(KEY_REAUTH_NOTICE, v).apply()
 
     /** Полный сброс данных аккаунта на устройстве. Настройки просмотра не трогаем. */
     fun clearAuth() {

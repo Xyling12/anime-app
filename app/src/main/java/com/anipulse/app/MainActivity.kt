@@ -125,6 +125,34 @@ class MainActivity : ComponentActivity() {
         setContent {
             Box {
                 AnimeLibRoot()
+
+                // Объяснение для тех, кого обновление разлогинило. Без него выход из аккаунта
+                // без всякого действия пользователя читается как поломка приложения.
+                var reauthNotice by remember { mutableStateOf(settings.reauthNoticePending) }
+                if (reauthNotice) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            settings.reauthNoticePending = false
+                            reauthNotice = false
+                        },
+                        title = { Text("Нужно войти заново") },
+                        text = {
+                            Text(
+                                "В этой версии данные на устройстве шифруются. " +
+                                    "Прежний ключ входа хранился незащищённым, поэтому мы его удалили — " +
+                                    "войдите в аккаунт ещё раз.\n\n" +
+                                    "История просмотра и списки сохранены."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                settings.reauthNoticePending = false
+                                reauthNotice = false
+                            }) { Text("Понятно") }
+                        },
+                    )
+                }
+
                 pendingLogin?.let { (token, nick) ->
                     AlertDialog(
                         onDismissRequest = { pendingLogin = null },
