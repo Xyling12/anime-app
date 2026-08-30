@@ -60,10 +60,14 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun database(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "anipulse.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
-            .build()
+    fun database(
+        @ApplicationContext context: Context,
+        settings: com.anipulse.app.data.SettingsStore,
+    ): AppDatabase = AppDatabase.build(
+        context = context,
+        passphrase = settings.databasePassphrase,
+        migrations = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4),
+    )
 
     @Provides
     fun progressDao(db: AppDatabase): ProgressDao = db.progressDao()

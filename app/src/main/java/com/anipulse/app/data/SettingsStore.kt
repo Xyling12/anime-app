@@ -126,6 +126,30 @@ class SettingsStore @Inject constructor(
         get() = prefs.getString("auth_email", null)
         set(v) = prefs.edit().putString("auth_email", v).apply()
 
+    /**
+     * Пароль для шифрования локальной базы (SQLCipher). Генерируется один раз при первом
+     * запуске и лежит в этом же шифрованном хранилище, то есть под ключом Android Keystore.
+     *
+     * Хранить его рядом с данными — не порочный круг: Keystore держит свой ключ в аппаратном
+     * хранилище, откуда его нельзя извлечь даже с root. Атакующий, снявший образ раздела,
+     * получает шифротекст базы и шифротекст пароля, но не ключ для их расшифровки.
+     *
+     * Пароль печатный (Base64 от 32 случайных байт), а не сырые байты, и это принципиально:
+     * сырой ключ почти наверняка содержит нулевой байт, а на границе JNI строка обрезается
+     * по первому нулю — ATTACH ... KEY получал огрызок ключа и падал с «unable to open
+     * database». Печатной строке это не грозит, энтропия те же 256 бит.
+     */
+    val databasePassphrase: String
+        get() {
+            prefs.getString("db_passphrase", null)?.let { return it }
+            val random = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+            val generated = android.util.Base64.encodeToString(random, android.util.Base64.NO_WRAP)
+            prefs.edit()
+                .putString("db_passphrase", generated)
+                .commit() // именно commit: если процесс упадёт до записи, база станет нечитаемой
+            return generated
+        }
+
     /** Полный сброс данных аккаунта на устройстве. Настройки просмотра не трогаем. */
     fun clearAuth() {
         prefs.edit()

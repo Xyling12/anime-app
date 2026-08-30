@@ -38,7 +38,7 @@ Kotlin + Jetpack Compose, single-activity, MVVM.
 |---|---|---|
 | UI | `ui/` | Compose-экраны и `ViewModel` на каждый раздел: каталог, тайтл, плеер, библиотека, расписание, профиль |
 | Данные | `data/` | Retrofit-клиенты (`Api`, `GatewayApi`), репозитории, `SettingsStore` на `EncryptedSharedPreferences` |
-| Локальная БД | `data/db/` | Room: прогресс серий, избранное, скрытые из «Продолжить» |
+| Локальная БД | `data/db/` | Room поверх SQLCipher: прогресс серий, избранное, скрытые из «Продолжить» |
 | Видео | `data/video/` | Интерфейс `VideoSource` и его реализации; `PlaybackSession` для плеера |
 | Загрузки | `data/download/` | Скачивание серий и офлайн-воспроизведение |
 | DI | `di/` | Hilt-модули сети и базы данных |
@@ -49,7 +49,10 @@ Kotlin + Jetpack Compose, single-activity, MVVM.
 выбор качества, жесты, PiP, автопропуск опенинга и эндинга по данным AniSkip
 с эвристическим запасным вариантом.
 
-Минимальная версия — Android 8.0 (API 26), целевая — API 35.
+Минимальная версия — Android 8.0 (API 26), целевая — API 35. Поддерживаемые
+архитектуры — `armeabi-v7a` и `arm64-v8a`.
+
+Защита данных на устройстве описана отдельно: [ANDROID_SECURITY.md](ANDROID_SECURITY.md).
 
 ## API-шлюз (`server/`)
 

@@ -30,6 +30,16 @@ android {
         targetSdk = 35
         versionCode = 28
         versionName = "0.7.1"
+
+        ndk {
+            // Нативные библиотеки SQLCipher весят ~5 МБ на каждую архитектуру. x86 и x86_64
+            // встречаются только в эмуляторах и единичных Chromebook'ах — на них уходило
+            // 11 МБ из 24 МБ APK, которые ни один телефон не использует.
+            //
+            // Отладочные сборки фильтр не трогает (см. ниже), иначе приложение перестало бы
+            // ставиться на эмулятор.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -64,6 +74,9 @@ android {
             // Поле должно существовать во всех вариантах, иначе BuildConfig не скомпилируется.
             // Пустая строка = проверка целостности отключена (отладочная подпись своя у каждого).
             buildConfigField("String", "RELEASE_CERT_SHA256", "\"\"")
+            // Возвращаем x86-архитектуры: эмуляторы почти всегда x86_64, и без них
+            // отладочная сборка на них не запустится.
+            ndk { abiFilters += listOf("x86", "x86_64") }
         }
     }
     compileOptions {
@@ -114,6 +127,10 @@ dependencies {
     implementation(libs.work.runtime)
 
     implementation(libs.androidx.security.crypto)
+    // Шифрование локальной базы. Тянет нативные библиотеки на все ABI (~4 МБ к APK) —
+    // цена за то, что история просмотра не читается с устройства в открытом виде.
+    implementation(libs.sqlcipher)
+    implementation(libs.androidx.sqlite)
     implementation(libs.androidx.core.splashscreen)
 
     testImplementation("junit:junit:4.13.2")

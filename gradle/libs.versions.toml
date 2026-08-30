@@ -18,6 +18,8 @@ media3 = "1.5.0"
 workManager = "2.10.0"
 coreKtx = "1.15.0"
 securityCrypto = "1.1.0-alpha06"
+sqlcipher = "4.6.1"
+sqliteAndroidx = "2.4.0"
 splashscreen = "1.0.1"
 
 [libraries]
@@ -48,6 +50,8 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "medi
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+androidx-sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "sqliteAndroidx" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 
 [plugins]

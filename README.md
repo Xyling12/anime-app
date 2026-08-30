@@ -97,6 +97,7 @@ node --test "server/tests/*.test.js"
 - [Архитектура](docs/ARCHITECTURE.md) — как устроены приложение, шлюз и веб-клиент
 - [Сборка и разработка](docs/DEVELOPMENT.md) — окружение, тесты, конвенции
 - [Выкладка на прод](server/deploy/DEPLOY.md) — деплой шлюза, Caddy и веб-клиента
+- [Защита данных в Android-клиенте](docs/ANDROID_SECURITY.md) — модель угроз, что закрыто и что нет
 - [Безопасность](SECURITY.md) — как сообщить об уязвимости
 - [Как участвовать](CONTRIBUTING.md)
 - [Список изменений](CHANGELOG.md)
