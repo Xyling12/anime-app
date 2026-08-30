@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 const projectRoot = path.resolve(__dirname, '..', '..');
 const gatewayPath = path.join(projectRoot, 'server', 'gateway.js');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'anipulse-social-safety-'));
-const password = 'SafetyPass-2026';
+const password = 'SafetyPass-2026'; // gitleaks:allow — фикстура теста, не настоящий пароль
 let gateway;
 let baseUrl;
 const tokens = {};

@@ -24,7 +24,7 @@
 
 ```bash
 ./gradlew test lint      # Android
-cd server && npm test    # шлюз
+node --test "server/tests/*.test.js"   # шлюз
 cd web/app && pnpm lint && pnpm build   # веб
 ```
 

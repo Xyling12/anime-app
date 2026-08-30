@@ -45,8 +45,8 @@ keyPassword=...
 ## API-шлюз
 
 ```bash
-node --test server/tests       # весь набор тестов
-node --test server/tests/sync.test.js
+node --test "server/tests/*.test.js"   # весь набор
+node --test server/tests/sync.test.js  # один файл
 ```
 
 Тесты используют встроенный раннер Node.js и поднимают шлюз во временном
@@ -81,6 +81,6 @@ pnpm build
 
 ```bash
 ./gradlew test lint
-node --test server/tests
+node --test "server/tests/*.test.js"
 cd web/app && pnpm lint && pnpm build
 ```

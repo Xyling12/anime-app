@@ -12,7 +12,7 @@ const { spawn } = require('node:child_process');
 const projectRoot = path.resolve(__dirname, '..', '..');
 const gatewayPath = path.join(projectRoot, 'server', 'gateway.js');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'anipulse-account-deletion-'));
-const password = 'DeletionPass-2026';
+const password = 'DeletionPass-2026'; // gitleaks:allow — фикстура теста, не настоящий пароль
 let gateway;
 let baseUrl;
 let aliceToken;

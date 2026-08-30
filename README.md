@@ -85,7 +85,7 @@ pnpm dev
 Тесты запускаются встроенным раннером:
 
 ```bash
-node --test server/tests
+node --test "server/tests/*.test.js"
 ```
 
 Шлюзу нужны локальные файлы конфигурации (токены источников, SMTP, OAuth) — они
