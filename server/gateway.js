@@ -192,6 +192,13 @@ async function handleKodikFind(id, res) {
 }
 
 
+// Kodik отдаёт названия студий как в HTML: «AEROChannelEkat &amp; Risha».
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
 // /alapi/kodik-dubs?shikimoriId=X -> [{title,type,link}] — ВСЕ озвучки Kodik (бесплатно).
 async function handleKodikDubs(id, res){
   try{
@@ -212,7 +219,7 @@ async function handleKodikDubs(id, res){
       const [_,mid,mhash,title]=o;
       const key=mid+':'+mhash; if(seen.has(key))continue; seen.add(key);
       const vm=o[0].match(/value="(\d+)"/);
-      out.push({title:title||'Kodik', type: vm?typeMatch(vm[1]):'voice', link:`//kodikplayer.com/serial/${mid}/${mhash}/720p`});
+      out.push({title:decodeHtmlEntities(title)||'Kodik', type: vm?typeMatch(vm[1]):'voice', link:`//kodikplayer.com/serial/${mid}/${mhash}/720p`});
     }
     // если опций нет (одиночный перевод) — вернём дефолт
     if(out.length===0) out.push({title:j.translation||'Kodik',type:'voice',link:j.link});
@@ -225,6 +232,23 @@ async function handleKodikDubs(id, res){
 // (сервер сходит по любому https-хосту от имени VPS). Разрешаем только сам Kodik.
 function isAllowedKodikHost(host) {
   return /^([a-z0-9-]+\.)*kodikplayer\.com$/i.test(host);
+}
+// Какая серия реально выбрана на странице сериала Kodik. На несуществующую
+// серию (29-ю из 28 или ещё не вышедшую у этой озвучки) Kodik не отвечает
+// ошибкой, а молча выбирает последнюю доступную — и шлюз отдавал её поток.
+// Клиенты после последней серии уходили на N+1 и крутили финал по кругу.
+function kodikSelectedEpisode(page) {
+  // Ищем сам элемент, а не первое упоминание: класс встречается и в CSS страницы.
+  const start = page.indexOf('class="serial-series-box"');
+  if (start < 0) return null;
+  const end = page.indexOf('</select>', start);
+  const block = page.slice(start, end < 0 ? undefined : end);
+  for (const m of block.matchAll(/<option\b([^>]*)>/g)) {
+    if (!/\bselected\b/.test(m[1])) continue;
+    const v = m[1].match(/\bvalue="(\d+)"/);
+    return v ? Number(v[1]) : null;
+  }
+  return null;
 }
 async function handleKodik(link, episode, res) {
   try {
@@ -240,6 +264,12 @@ async function handleKodik(link, episode, res) {
       maxBytes: 2 * 1024 * 1024,
       redirectAllowed: (_from, to) => isAllowedKodikHost(to.hostname),
     })).body.toString();
+    if (episode) {
+      const selected = kodikSelectedEpisode(page);
+      if (selected != null && selected !== Number(episode)) {
+        return jsonRes(res, 404, { error: 'episode not found', lastEpisode: selected });
+      }
+    }
     const vt = page.match(/vInfo\.type\s*=\s*'([^']+)'/);
     const vh = page.match(/vInfo\.hash\s*=\s*'([^']+)'/);
     const vi = page.match(/vInfo\.id\s*=\s*'([^']+)'/);
@@ -439,6 +469,13 @@ function tooMany(map, key, limit, windowMs) {
   if (map.size > RATE_LIMIT_MAX_KEYS) evictRateLimit(map, now);
   return false;
 }
+const LOGIN_FAIL_LIMIT = 10;
+const LOGIN_FAIL_WINDOW_MS = 15 * 60 * 1000;
+/** Сколько отметок по ключу за окно — без добавления новой. */
+function recentHits(map, key, windowMs) {
+  const now = Date.now();
+  return (map.get(key) || []).filter(t => now - t < windowMs).length;
+}
 function clientIp(req) {
   // Caddy ДОПИСЫВАЕТ реальный IP в конец X-Forwarded-For, не удаляя то, что прислал клиент —
   // поэтому доверяем ПОСЛЕДНЕМУ элементу, а не первому (иначе клиент подделывает [0] и обходит rate-limit).
@@ -475,8 +512,17 @@ function hashPassword(pw, salt) {
   return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex');
 }
 function checkPassword(pw, stored) {
+  // Битая запись в базе раньше роняла запрос в 500: timingSafeEqual бросает
+  // исключение на буферах разной длины.
+  if (typeof stored !== 'string' || !stored.includes(':')) return false;
   const [salt] = stored.split(':');
-  return crypto.timingSafeEqual(Buffer.from(hashPassword(pw, salt)), Buffer.from(stored));
+  const a = Buffer.from(hashPassword(pw, salt)), b = Buffer.from(stored);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function sameCode(given, expected) {
+  if (typeof expected !== 'string' || !expected) return false;
+  const a = Buffer.from(String(given || '')), b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 function makeToken(userId) {
   const db = loadUsers();
@@ -703,9 +749,20 @@ async function handleAuth(req, res, path) {
     const b = await readBody(req);
     if (!b || !b.login || !b.password) return jsonRes(res, 400, { error: 'Заполните все поля' });
     const login = String(b.login).trim().toLowerCase();
+    // Лимит по IP не спасает от перебора одного аккаунта с множества адресов.
+    // Считаем неудачи и по самому логину — существует он или нет, чтобы ответ
+    // не выдавал наличие аккаунта.
+    const failKey = 'login-fail:' + login;
+    if (recentHits(userHits, failKey, LOGIN_FAIL_WINDOW_MS) >= LOGIN_FAIL_LIMIT) {
+      return jsonRes(res, 429, { error: 'Слишком много неудачных попыток входа, попробуйте через 15 минут' });
+    }
     const db = loadUsers();
     const user = db.users.find(u => u.email === login || u.nick.toLowerCase() === login);
-    if (!user || !checkPassword(String(b.password), user.pass)) return jsonRes(res, 401, { error: 'Неверный логин или пароль' });
+    if (!user || !checkPassword(String(b.password), user.pass)) {
+      tooMany(userHits, failKey, Infinity, LOGIN_FAIL_WINDOW_MS);
+      return jsonRes(res, 401, { error: 'Неверный логин или пароль' });
+    }
+    userHits.delete(failKey);
     // Новая версия клиента просит отдельные отметки и обновляет согласия при каждом осознанном входе.
     // Старые beta-сборки временно не блокируем, чтобы OTA-миграция не заперла уже созданные аккаунты.
     if (b.acceptTerms === true && b.privacyConsent === true) {
@@ -723,7 +780,7 @@ async function handleAuth(req, res, path) {
     const db = loadUsers(); const u = db.users.find(x => x.id === user.id);
     if (u.emailVerified !== false) return jsonRes(res, 200, { ok: true });
     if ((u.verifyAttempts || 0) >= 5) { delete u.verifyCode; delete u.verifyExp; saveUsers(db); return jsonRes(res, 429, { error: 'Слишком много попыток — запросите новый код' }); }
-    if (!b || String(b.code) !== u.verifyCode || (u.verifyExp || 0) < Date.now()) {
+    if (!b || !sameCode(b.code, u.verifyCode) || (u.verifyExp || 0) < Date.now()) {
       u.verifyAttempts = (u.verifyAttempts || 0) + 1; saveUsers(db);
       return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
     }
@@ -745,12 +802,19 @@ async function handleAuth(req, res, path) {
     const b = await readBody(req);
     const email = String((b && b.email) || '').trim().toLowerCase();
     if (!email) return jsonRes(res, 400, { error: 'Укажите почту' });
+    // Не больше трёх кодов на почту в час: иначе жертву можно засыпать письмами,
+    // а каждый новый код раньше обнулял счётчик попыток и открывал перебор заново.
+    if (tooMany(userHits, 'fg-mail:' + email, 3, 60 * 60 * 1000)) return jsonRes(res, 200, { ok: true });
     const db = loadUsers();
     const u = db.users.find(x => x.email === email);
     if (u) {
+      // Попытки считаются в часовом окне и переживают перевыпуск кода.
+      if (!u.resetWindowStart || Date.now() - u.resetWindowStart > 60 * 60 * 1000) {
+        u.resetWindowStart = Date.now();
+        u.resetAttempts = 0;
+      }
       u.resetCode = String(crypto.randomInt(100000, 1000000));
       u.resetExp = Date.now() + 15 * 60 * 1000;
-      u.resetAttempts = 0;
       saveUsers(db);
       sendMail(u.email, 'Восстановление пароля AniPulse', 'Код для смены пароля: ' + u.resetCode + '\n\nКод действует 15 минут. Если это были не вы — просто проигнорируйте письмо.');
     }
@@ -767,13 +831,13 @@ async function handleAuth(req, res, path) {
     const db = loadUsers();
     const u = db.users.find(x => x.email === email);
     // Лимит попыток на аккаунт — не даём подобрать 6-значный код перебором даже при обходе IP-лимита.
-    if (u && (u.resetAttempts || 0) >= 5) { delete u.resetCode; delete u.resetExp; saveUsers(db); return jsonRes(res, 429, { error: 'Слишком много попыток — запросите код заново' }); }
-    if (!u || u.resetCode !== code || (u.resetExp || 0) < Date.now()) {
+    if (u && (u.resetAttempts || 0) >= 5) { delete u.resetCode; delete u.resetExp; saveUsers(db); return jsonRes(res, 429, { error: 'Слишком много попыток — попробуйте через час' }); }
+    if (!u || !sameCode(code, u.resetCode) || (u.resetExp || 0) < Date.now()) {
       if (u) { u.resetAttempts = (u.resetAttempts || 0) + 1; saveUsers(db); }
       return jsonRes(res, 400, { error: 'Неверный или просроченный код' });
     }
     u.pass = hashPassword(password);
-    delete u.resetCode; delete u.resetExp; delete u.resetAttempts;
+    delete u.resetCode; delete u.resetExp; delete u.resetAttempts; delete u.resetWindowStart;
     u.emailVerified = true; // владение почтой доказано кодом
     u.tv = (u.tv || 0) + 1; // отзыв всех старых токенов
     saveUsers(db);
@@ -1836,20 +1900,27 @@ async function handleChat(req, res) {
   }
   jsonRes(res, 405, { error: 'method' });
 }
+function isSafeCommentKey(id) {
+  return /^[\w:.-]{1,40}$/.test(id) && !['__proto__', 'constructor', 'prototype'].includes(id);
+}
+function commentList(all, id) {
+  return Object.prototype.hasOwnProperty.call(all, id) && Array.isArray(all[id]) ? all[id] : [];
+}
 async function handleComments(req, res) {
   const animeId = decodeURIComponent(String((req.url.match(/[?&]animeId=([\w:.%-]+)/) || [])[1] || ''));
   if (req.method === 'GET') {
     if (!animeId) return jsonRes(res, 400, { error: 'animeId required' });
     const all = loadJson(COMMENTS_FILE, {});
-    // userId — внутреннее поле (нужно только для admin delete-comment по id, не по userId);
-    // публично не отдаём, чтобы не облегчать перечисление аккаунтов по нику↔id.
     const avByNick = {};
     for (const u of loadUsers().users) {
       if (u.nick) avByNick[u.nick.toLowerCase()] = { avatar: avatarOf(u), avatarRev: u.avatarRev || 0, userId: u.id };
     }
     const viewer = authUser(req);
     const hidden = viewer ? bilateralHiddenIds(blocksDb(), viewer.id) : new Set();
-    const out = (all[animeId] || []).filter(c => !hidden.has(Number(c.userId))).slice(-100).map(({ userId, ...rest }) => ({
+    const list = commentList(all, animeId);
+    // userId нужен Android-клиенту как ключ кеша аватарки; он и так публичен в
+    // карточке профиля, поэтому отдаём его как есть.
+    const out = list.filter(c => !hidden.has(Number(c.userId))).slice(-100).map(({ userId, ...rest }) => ({
       ...rest,
       userId,
       avatar: avByNick[String(rest.nick || '').toLowerCase()] !== undefined
@@ -1866,13 +1937,16 @@ async function handleComments(req, res) {
     if (isBanned(user)) return jsonRes(res, 403, { error: banMessage(user) });
     const b = await readBody(req);
     const id = String((b && b.animeId) || '').slice(0, 40);
+    // Ключ хранилища — только безопасный идентификатор: `__proto__` и подобные
+    // ломали запись в общий объект комментариев.
+    if (!isSafeCommentKey(id)) return jsonRes(res, 400, { error: 'Некорректный тайтл' });
     let text = sanitizeText(b && b.text, 1000);
     if (!id || !text) return jsonRes(res, 400, { error: 'Пустой комментарий' });
     if (hasViolence(text)) return jsonRes(res, 400, { error: 'Комментарий нарушает правила и не отправлен' });
     text = filterProfanity(text);
     if (tooMany(userHits, 'cm:' + user.id, 3, 60 * 1000)) return jsonRes(res, 429, { error: 'Не так быстро — до 3 комментариев в минуту' });
     const all = loadJson(COMMENTS_FILE, {});
-    const list = all[id] || [];
+    const list = commentList(all, id);
     const cm = { id: Date.now() + Math.floor(Math.random() * 1000), userId: user.id, nick: user.nick, avatar: avatarOf(user), text, at: Date.now() };
     if ((b && b.spoiler) || looksSpoiler(text)) cm.spoiler = true;
     list.push(cm);
@@ -1885,8 +1959,9 @@ async function handleComments(req, res) {
     const user = authUser(req);
     if (!user) return jsonRes(res, 401, { error: 'Войдите, чтобы удалить комментарий' });
     const id = Number((req.url.match(/[?&]id=(\d+)/) || [])[1] || 0);
+    if (!isSafeCommentKey(animeId)) return jsonRes(res, 400, { error: 'animeId required' });
     const all = loadJson(COMMENTS_FILE, {});
-    const list = all[animeId] || [];
+    const list = commentList(all, animeId);
     all[animeId] = list.filter(c => c.id !== id || (c.userId !== user.id && !user.admin));
     saveJson(COMMENTS_FILE, all);
     return jsonRes(res, 200, { removed: list.length - all[animeId].length });
@@ -2258,7 +2333,7 @@ async function handleOAuthYandex(req, res, isCallback) {
     })).body.toString());
     if (!info.id) { res.writeHead(502); return res.end('yandex info error'); }
     socialLogin('yandex', info.id, info.display_name || info.real_name || info.login, res, saved.linkState);
-  } catch (e) { res.writeHead(502); res.end('oauth error: ' + e.message); }
+  } catch (e) { console.error('oauth error:', e.message); res.writeHead(502); res.end('oauth error'); }
 }
 async function handleOAuthVk(req, res, isCallback) {
   try {
@@ -2301,7 +2376,7 @@ async function handleOAuthVk(req, res, isCallback) {
       '&device_id=' + encodeURIComponent(deviceId) + '&state=' + encodeURIComponent(state) +
       '&redirect_uri=' + encodeURIComponent(OAUTH_REDIRECT_BASE + '/vk/callback');
     const tokenResp = JSON.parse((await fetchFollow('https://id.vk.com/oauth2/auth', { method: 'POST', body })).body.toString());
-    if (!tokenResp.access_token) { res.writeHead(502); return res.end('vk token error: ' + JSON.stringify(tokenResp).slice(0, 200)); }
+    if (!tokenResp.access_token) { console.error('vk token error:', tokenResp && tokenResp.error); res.writeHead(502); return res.end('vk token error'); }
     const infoResp = JSON.parse((await fetchFollow('https://id.vk.com/oauth2/user_info', {
       method: 'POST',
       body: 'client_id=' + cfg.client_id + '&access_token=' + encodeURIComponent(tokenResp.access_token),
@@ -2310,7 +2385,7 @@ async function handleOAuthVk(req, res, isCallback) {
     if (!u.user_id) { res.writeHead(502); return res.end('vk info error'); }
     const linkState = saved.link || ''; // из своего хранилища, не из эха VK
     socialLogin('vk', u.user_id, [u.first_name, u.last_name].filter(Boolean).join(' '), res, linkState);
-  } catch (e) { res.writeHead(502); res.end('oauth error: ' + e.message); }
+  } catch (e) { console.error('oauth error:', e.message); res.writeHead(502); res.end('oauth error'); }
 }
 
 // ===== Публичные юридические страницы =====
@@ -2613,7 +2688,7 @@ async function route(req, res) {
     });
     res.writeHead(200, safeProxyHeaders(responseType));
     return res.end(responseBody);
-  } catch (e) { res.writeHead(502); res.end('gateway error: ' + e.message); }
+  } catch (e) { console.error('proxy error:', alias, e.message); res.writeHead(502); res.end('gateway error'); }
 }
 // Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
