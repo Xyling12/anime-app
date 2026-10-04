@@ -1,0 +1,2 @@
+# Тестовая фикстура пароля в истории PR #7 (позже вынесена в константу с gitleaks:allow).
+5c827697e6297cdefedb4e533c4c19eda0ecccc6:server/tests/auth-hardening.test.js:generic-api-key:87
