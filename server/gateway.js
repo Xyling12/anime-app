@@ -166,20 +166,8 @@ async function fetchJsonUpstream(target, options, retries = 2) {
   return last;
 }
 
-// Расшифровка src Kodik: Caesar-сдвиг (авто-подбор 1..25) + base64.
-function kodikDecode(src) {
-  for (let s = 1; s <= 25; s++) {
-    let rot = '';
-    for (const c of src) {
-      const code = c.charCodeAt(0);
-      if (code >= 97 && code <= 122) rot += String.fromCharCode((code-97+s)%26+97);
-      else if (code >= 65 && code <= 90) rot += String.fromCharCode((code-65+s)%26+65);
-      else rot += c;
-    }
-    try { const d = Buffer.from(rot, 'base64').toString('utf8'); if (d.includes('//') || d.startsWith('http')) return d; } catch (e) {}
-  }
-  return null;
-}
+// Расшифровка src Kodik — в kodik-decode.js (там же объяснение и тесты).
+const { kodikDecode } = require('./kodik-decode');
 
 // /alapi/kodik-find?shikimoriId=X -> {link, translation, quality} (маппинг по shikimori_id)
 async function handleKodikFind(id, res) {
