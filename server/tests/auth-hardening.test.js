@@ -18,6 +18,9 @@ const { spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '..', '..');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'anipulse-auth-hardening-'));
 let gateway, baseUrl, ipSeq = 0;
+const TARGET_PASS = 'Correct-Pass-2026'; // gitleaks:allow — фикстура теста, не настоящий пароль
+const RESET_PASS = 'Old-Pass-2026'; // gitleaks:allow — фикстура теста, не настоящий пароль
+const NEW_PASS = 'New-Pass-2026'; // gitleaks:allow — фикстура теста, не настоящий пароль
 
 function hash(value) {
   const salt = 'auth-hardening-test-salt';
@@ -55,8 +58,8 @@ before(async () => {
   fs.writeFileSync(path.join(data, 'users.json'), JSON.stringify({
     seq: 3,
     users: [
-      { id: 1, nick: 'Target', email: 'target@example.test', pass: hash('Correct-Pass-2026'), emailVerified: true },
-      { id: 2, nick: 'Resetme', email: 'reset@example.test', pass: hash('Old-Pass-2026'), emailVerified: true },
+      { id: 1, nick: 'Target', email: 'target@example.test', pass: hash(TARGET_PASS), emailVerified: true },
+      { id: 2, nick: 'Resetme', email: 'reset@example.test', pass: hash(RESET_PASS), emailVerified: true },
       { id: 3, nick: 'Broken', email: 'broken@example.test', pass: 'not-a-valid-hash', emailVerified: true },
     ],
   }));
@@ -84,7 +87,7 @@ test('one account is locked after repeated failures from different addresses', a
   for (let i = 0; i < 10; i++) {
     assert.equal((await post('/alapi/auth/login', { login: 'Target', password: 'wrong-' + i })).status, 401);
   }
-  const locked = await post('/alapi/auth/login', { login: 'target', password: 'Correct-Pass-2026' });
+  const locked = await post('/alapi/auth/login', { login: 'target', password: TARGET_PASS });
   assert.equal(locked.status, 429, 'верный пароль не проходит, пока аккаунт заблокирован');
 });
 
@@ -102,14 +105,14 @@ test('a corrupt password hash is a failed login, not a server error', async () =
 test('requesting a new reset code does not reset the wrong-guess counter', async () => {
   assert.equal((await post('/alapi/auth/forgot', { email: 'reset@example.test' })).status, 200);
   for (let i = 0; i < 5; i++) {
-    const r = await post('/alapi/auth/reset', { email: 'reset@example.test', code: '000000', password: 'New-Pass-2026' });
+    const r = await post('/alapi/auth/reset', { email: 'reset@example.test', code: '000000', password: NEW_PASS });
     assert.equal(r.status, usersDb().users[1].resetCode === '000000' ? 200 : 400);
   }
   // Раньше новый код обнулял счётчик и давал ещё 5 попыток.
   assert.equal((await post('/alapi/auth/forgot', { email: 'reset@example.test' })).status, 200);
   const code = usersDb().users.find(u => u.id === 2).resetCode;
   if (code) {
-    const r = await post('/alapi/auth/reset', { email: 'reset@example.test', code, password: 'New-Pass-2026' });
+    const r = await post('/alapi/auth/reset', { email: 'reset@example.test', code, password: NEW_PASS });
     assert.equal(r.status, 429, 'даже верный код не принимается, пока не истёк час');
   }
 });
@@ -124,7 +127,7 @@ test('at most three reset codes are issued per address per hour', async () => {
 });
 
 test('comment keys like __proto__ are rejected', async () => {
-  const login = await post('/alapi/auth/login', { login: 'reset@example.test', password: 'Old-Pass-2026' });
+  const login = await post('/alapi/auth/login', { login: 'reset@example.test', password: RESET_PASS });
   // Аккаунт мог быть заблокирован предыдущим тестом — тогда берём токен напрямую нельзя;
   // проверяем GET, которому авторизация не нужна.
   const response = await fetch(baseUrl + '/alapi/comments?animeId=__proto__', { headers: { 'x-forwarded-for': freshIp() } });
