@@ -9,6 +9,7 @@ const {
   detectRasterContentType,
   isPrivateOrReservedIp,
   isSafeProxyContentType,
+  isShikimoriPosterPath,
   publicProxyPolicy,
   safeProxyHeaders,
 } = require('../proxy-security');
@@ -94,6 +95,24 @@ test('public proxy permits only the routes used by the Android client', () => {
   assert.equal(publicProxyPolicy('anilibria', 'https://anilibria.top/api/v1/anime/releases/1')?.kind, 'json');
   assert.equal(publicProxyPolicy('aniskip', 'https://api.aniskip.com/v2/skip-times/1/2?types=op&types=ed')?.kind, 'json');
   assert.equal(publicProxyPolicy('malcdn', 'https://cdn.myanimelist.net/images/anime/1/2.jpg')?.kind, 'image');
+});
+
+test('public proxy serves posters from the new Shikimori storage and nothing else there', () => {
+  const poster = 'https://shikimori.io/uploads/poster/animes/64028/main-cbf645b87983d28675ba225ed224549f.webp';
+  assert.equal(isShikimoriPosterPath(new URL(poster).pathname), true);
+  assert.equal(publicProxyPolicy('shikimori', poster)?.kind, 'image');
+  assert.equal(
+    publicProxyPolicy('shikimori', 'https://shikimori.io/uploads/poster/animes/64028/8e2a7d5ec6a37f8624f509edb521d803.jpeg')?.kind,
+    'image',
+  );
+  for (const url of [
+    `${poster}?url=https://example.com`,
+    'https://shikimori.io/uploads/poster/animes/64028/evil.svg',
+    'https://shikimori.io/uploads/poster/animes/64028/../../../api/users.webp',
+    'https://shikimori.io/uploads/poster/animes/abc/main.webp',
+    'https://shikimori.io/uploads/poster/characters/1/main.webp',
+    'https://shikimori.io/uploads/avatars/1/main.webp',
+  ]) assert.equal(publicProxyPolicy('shikimori', url), null, url);
 });
 
 test('public proxy denies active pages, unused aliases and abusive queries', () => {

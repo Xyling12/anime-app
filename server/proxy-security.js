@@ -82,12 +82,23 @@ function onlyQueryParams(url, allowed) {
   return true;
 }
 
+/**
+ * Новое хранилище постеров Shikimori: `/uploads/poster/animes/<id>/main-<hash>.webp`.
+ * Старый путь `/system/animes/...` есть не у всех тайтлов — у новых REST отдаёт заглушку.
+ */
+function isShikimoriPosterPath(path) {
+  return /^\/uploads\/poster\/animes\/\d{1,10}\/[a-z0-9_-]{1,120}\.(?:avif|gif|jpe?g|png|webp)$/i.test(path);
+}
+
 function publicProxyPolicy(alias, target) {
   const url = new URL(target);
   const path = url.pathname;
   if (alias === 'shikimori') {
     if (/^\/system\/animes\/(?:original|preview|x48|x96)\/[a-z0-9_./-]+\.(?:avif|gif|jpe?g|png|webp)$/i.test(path) &&
         (!url.search || /^\?\d{1,20}$/.test(url.search))) {
+      return { kind: 'image', maxBytes: 4 * 1024 * 1024 };
+    }
+    if (isShikimoriPosterPath(path) && !url.search) {
       return { kind: 'image', maxBytes: 4 * 1024 * 1024 };
     }
     if (path === '/api/animes') {
@@ -250,6 +261,7 @@ module.exports = {
   detectRasterContentType,
   isPrivateOrReservedIp,
   isSafeProxyContentType,
+  isShikimoriPosterPath,
   publicProxyPolicy,
   safeProxyHeaders,
 };
