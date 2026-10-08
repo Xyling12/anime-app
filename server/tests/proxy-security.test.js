@@ -85,6 +85,24 @@ test('byte LRU enforces both memory and entry limits and prunes expiry', () => {
   assert.equal(cache.map.size, 0);
 });
 
+test('byte LRU keeps an expired entry as a stale copy until staleUntil', () => {
+  const cache = new ByteLruCache({ maxBytes: 100, maxEntries: 10 });
+  cache.set('title', { body: Buffer.from('{}'), exp: 100, staleUntil: 1000 });
+  assert.equal(cache.get('title', 50)?.exp, 100);
+  // Просрочена: свежей копии нет, но для отказа источника она ещё есть.
+  assert.equal(cache.get('title', 200), null);
+  assert.equal(cache.getStale('title', 200)?.exp, 100);
+  // Чистка по таймеру не трогает её до staleUntil.
+  cache.prune(500);
+  assert.equal(cache.getStale('title', 500)?.exp, 100);
+  cache.prune(1001);
+  assert.equal(cache.getStale('title', 1001), null);
+  assert.equal(cache.bytes, 0);
+  // Без staleUntil запись умирает вместе с exp, как раньше.
+  cache.set('img', { body: Buffer.from('x'), exp: 100 });
+  assert.equal(cache.getStale('img', 101), null);
+});
+
 test('public proxy permits only the routes used by the Android client', () => {
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes?limit=30')?.kind, 'json');
   assert.equal(publicProxyPolicy('shikimori', 'https://shikimori.io/api/animes/1/similar')?.kind, 'json');
