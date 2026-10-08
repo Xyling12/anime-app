@@ -11,6 +11,7 @@ const {
   createSafeLookup,
   detectRasterContentType,
   isSafeProxyContentType,
+  isShikimoriPosterPath,
   publicProxyPolicy,
   safeProxyHeaders,
 } = require('./proxy-security');
@@ -304,9 +305,71 @@ async function anilistCover(id) {
     return null;
   }
 }
+// Shikimori перенёс постеры в новое хранилище (/uploads/poster/animes/…). REST
+// /api/animes для таких тайтлов отдаёт заглушку missing_*, а настоящий постер есть
+// только в GraphQL (poster.mainUrl). В расписании на 08.10.2026 так было у 87 тайтлов
+// из 101: все они шли в медленную очередь Jikan/AniList, часть получала 503 «очередь
+// полна» или 404, и на сайте и в приложении оставались пустые карточки.
+// Экран просит десятки постеров разом, поэтому id копятся 30 мс и уходят одним
+// запросом GraphQL (до 50 id), а запросы идут друг за другом: по запросу на постер
+// упёрлись бы в лимит Shikimori (5 в секунду).
+const SHIKI_POSTER_BATCH = 50;
+const SHIKI_POSTER_WAIT_MS = 30;
+let shikiPosterWaiters = new Map(); // id -> [resolve, ...]
+let shikiPosterTimer = null;
+let shikiPosterChain = Promise.resolve();
+function shikimoriPoster(id) {
+  return new Promise((resolve) => {
+    const waiters = shikiPosterWaiters.get(id);
+    if (waiters) waiters.push(resolve);
+    else shikiPosterWaiters.set(id, [resolve]);
+    if (shikiPosterWaiters.size >= SHIKI_POSTER_BATCH) flushShikimoriPosters();
+    else if (!shikiPosterTimer) shikiPosterTimer = setTimeout(flushShikimoriPosters, SHIKI_POSTER_WAIT_MS);
+  });
+}
+function flushShikimoriPosters() {
+  clearTimeout(shikiPosterTimer);
+  shikiPosterTimer = null;
+  const batch = shikiPosterWaiters;
+  shikiPosterWaiters = new Map();
+  if (!batch.size) return;
+  shikiPosterChain = shikiPosterChain
+    .then(() => fetchShikimoriPosters([...batch.keys()]))
+    .catch(() => new Map())
+    .then((found) => {
+      for (const [id, waiters] of batch) for (const resolve of waiters) resolve(found.get(id) || null);
+    });
+}
+async function fetchShikimoriPosters(ids) {
+  const found = new Map();
+  // id приходят из маршрута /alapi/poster/(\d+), но в текст запроса подставляем
+  // только цифры — на случай, если функцию когда-нибудь вызовут иначе.
+  const safeIds = ids.filter((id) => /^\d{1,10}$/.test(id));
+  if (!safeIds.length) return found;
+  const body = JSON.stringify({
+    query: `{ animes(ids: "${safeIds.join(',')}", limit: ${safeIds.length}) { id poster { mainUrl } } }`,
+  });
+  const response = await fetchFollow(`${UPSTREAMS.shikimori}/api/graphql`, {
+    method: 'POST',
+    body,
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    maxBytes: 512 * 1024,
+  });
+  const shikiHost = new URL(UPSTREAMS.shikimori).hostname;
+  for (const anime of JSON.parse(response.body.toString())?.data?.animes || []) {
+    let url;
+    try { url = new URL(anime?.poster?.mainUrl); } catch (_) { continue; }
+    if (url.hostname === shikiHost && isShikimoriPosterPath(url.pathname)) {
+      found.set(String(anime.id), '/alapi/shikimori' + url.pathname);
+    }
+  }
+  return found;
+}
+
 let jikanChain = Promise.resolve();
 const posterPending = new Map();
 const MAX_POSTER_QUEUE = 64;
+let fallbackQueued = 0;
 function putPosterCache(id, value) {
   if (!posterCache.has(id) && posterCache.size >= 1000) {
     posterCache.delete(posterCache.keys().next().value);
@@ -318,7 +381,20 @@ function resolvePoster(id) {
   if (hit && hit.exp > Date.now()) return Promise.resolve(hit.path);
   const pending = posterPending.get(id);
   if (pending) return pending;
-  if (posterPending.size >= MAX_POSTER_QUEUE) return Promise.reject(new Error('poster queue is full'));
+
+  const job = shikimoriPoster(id).then((path) => {
+    if (!path) return resolveFallbackPoster(id);
+    putPosterCache(id, { path, exp: Date.now() + POSTER_TTL_MS });
+    return path;
+  });
+  posterPending.set(id, job);
+  job.then(() => posterPending.delete(id), () => posterPending.delete(id));
+  return job;
+}
+// Запасной путь для тайтлов, которых нет и в GraphQL Shikimori: Jikan, затем AniList.
+function resolveFallbackPoster(id) {
+  if (fallbackQueued >= MAX_POSTER_QUEUE) return Promise.reject(new Error('poster queue is full'));
+  fallbackQueued++;
 
   const job = jikanChain.then(async () => {
     const h2 = posterCache.get(id);
@@ -341,8 +417,7 @@ function resolvePoster(id) {
     return posterPath;
   });
   jikanChain = job.catch(() => {});
-  posterPending.set(id, job);
-  job.then(() => posterPending.delete(id), () => posterPending.delete(id));
+  job.then(() => fallbackQueued--, () => fallbackQueued--);
   return job;
 }
 async function handlePoster(id, res) {
