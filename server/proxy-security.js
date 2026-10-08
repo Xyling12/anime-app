@@ -227,11 +227,20 @@ class ByteLruCache {
     const value = this.map.get(key);
     if (!value) return null;
     if (value.exp <= now) {
-      this.delete(key);
+      // Просроченную запись с staleUntil не выбрасываем: её отдаст getStale(),
+      // когда источник откажет.
+      if ((value.staleUntil || value.exp) <= now) this.delete(key);
       return null;
     }
     this.map.delete(key);
     this.map.set(key, value);
+    return value;
+  }
+
+  /** Запись, даже просроченная, пока не вышел её staleUntil — на случай отказа источника. */
+  getStale(key, now = Date.now()) {
+    const value = this.map.get(key);
+    if (!value || (value.staleUntil || value.exp) <= now) return null;
     return value;
   }
 
@@ -249,7 +258,7 @@ class ByteLruCache {
 
   prune(now = Date.now()) {
     for (const [key, value] of this.map) {
-      if (value.exp <= now) this.delete(key);
+      if ((value.staleUntil || value.exp) <= now) this.delete(key);
     }
   }
 }

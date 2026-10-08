@@ -5,6 +5,7 @@ const fs = require('fs');
 const pathModule = require('path');
 const { URL } = require('url');
 const analyticsStore = require('./analytics-store');
+const { createRateLimiter } = require('./upstream-throttle');
 const {
   ByteLruCache,
   assertSafeHttpsUrl,
@@ -55,12 +56,44 @@ const KODIK_TOKEN = process.env.KODIK_TOKEN || (() => {
 })();
 const UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
 const cache = new ByteLruCache({ maxBytes: 32 * 1024 * 1024, maxEntries: 200 });
+// JSON — в отдельном кэше. В общем на 200 записей его вытесняли картинки, а
+// минутный срок означал, что почти каждый просмотр карточки шёл в Shikimori,
+// и под нагрузкой тот отвечал 429 — карточки падали. Описание тайтла за
+// полчаса не меняется; при отказе источника отдаём копию до суток давности.
+const jsonCache = new ByteLruCache({ maxBytes: 16 * 1024 * 1024, maxEntries: 2500 });
 const proxyInflight = new Map();
 const MAX_PROXY_INFLIGHT = 12;
+// Запросы, реально ушедшие наружу. Ждущие очереди к Shikimori сюда не входят:
+// иначе очередь занимала бы все места, и шлюз отвечал бы «занят» на всплесках.
+let activeUpstream = 0;
 const posterCache = new Map();
-const TTL_MS = 60 * 1000;
+const TTL_MS = 10 * 60 * 1000;
+const TITLE_TTL_MS = 30 * 60 * 1000;
+const STALE_TTL_MS = 24 * 60 * 60 * 1000;
 const IMG_TTL_MS = 30 * 60 * 1000; // картинки в серверном кэше держим дольше текста
 const POSTER_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Срок свежести JSON: тайтл и его связи — полчаса, списки и расписание — 10 минут. */
+function jsonTtl(alias, target) {
+  const path = new URL(target).pathname;
+  if (alias === 'shikimori' && (/^\/api\/animes\/\d+(?:\/|$)/.test(path) || path === '/api/genres')) {
+    return TITLE_TTL_MS;
+  }
+  return TTL_MS;
+}
+
+// Shikimori: не больше 5 запросов в секунду и 85 в минуту — под его лимитом 5/90.
+const shikiLimiter = createRateLimiter({
+  limits: [{ windowMs: 1000, max: 5 }, { windowMs: 60_000, max: 85 }],
+  maxWaitMs: 6000,
+});
+/** Дождаться очереди к API Shikimori; false — очередь слишком длинная, не ждём. */
+async function shikiTurn() {
+  const waitMs = shikiLimiter.take();
+  if (waitMs === null) return false;
+  if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+  return true;
+}
 
 // Периодическая чистка кэшей: записи раньше только помечались просроченными,
 // но не удалялись из Map — память росла к MemoryMax=150M юнита, под давлением
@@ -68,6 +101,7 @@ const POSTER_TTL_MS = 24 * 60 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
   cache.prune(now);
+  jsonCache.prune(now);
   for (const [k, v] of posterCache) { if (v.exp <= now) posterCache.delete(k); }
 }, 5 * 60 * 1000).unref();
 
@@ -349,6 +383,8 @@ async function fetchShikimoriPosters(ids) {
   const body = JSON.stringify({
     query: `{ animes(ids: "${safeIds.join(',')}", limit: ${safeIds.length}) { id poster { mainUrl } } }`,
   });
+  // Тот же лимит Shikimori, что и у прокси: очередь длинная — идём в запасной путь.
+  if (!(await shikiTurn())) return found;
   const response = await fetchFollow(`${UPSTREAMS.shikimori}/api/graphql`, {
     method: 'POST',
     body,
@@ -2694,64 +2730,105 @@ async function route(req, res) {
   }
   // Постеры не меняются по URL — неделя клиентского кэша (дисковый кэш Coil),
   // повторные заходы в каталог больше не тянут картинки по сети вообще.
-  const hit = cache.get(target);
+  const store = policy.kind === 'json' ? jsonCache : cache;
+  const hit = store.get(target);
   if (hit) {
     res.writeHead(hit.status, safeProxyHeaders(hit.ctype, { cacheHit: true }));
     return res.end(hit.body);
   }
-  try {
+
+  // Сходить к источнику и положить удачный ответ в кэш. Один запрос на адрес,
+  // сколько бы клиентов его ни ждали. Результат: { ok, body, ctype, noStore }
+  // или { ok: false, status, error, retryAfter }.
+  const load = () => {
     let pending = proxyInflight.get(target);
-    if (!pending) {
-      if (proxyInflight.size >= MAX_PROXY_INFLIGHT) {
-        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': '2' });
-        return res.end(JSON.stringify({ error: 'proxy is busy' }));
+    if (pending) return pending;
+    pending = (async () => {
+      if (activeUpstream >= MAX_PROXY_INFLIGHT) {
+        return { ok: false, status: 503, error: 'proxy is busy', retryAfter: '2' };
       }
-      pending = policy.kind === 'json'
-        ? fetchJsonUpstream(target, { maxBytes: policy.maxBytes })
-        : fetchFollow(target, { maxBytes: policy.maxBytes });
-      proxyInflight.set(target, pending);
-      pending.then(() => proxyInflight.delete(target), () => proxyInflight.delete(target));
-    }
-    const r = await pending;
-    if (r.status < 200 || r.status >= 300) {
-      const status = r.status >= 400 && r.status <= 599 ? r.status : 502;
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ error: 'upstream request failed' }));
-    }
-    let responseBody;
-    let responseType;
-    if (policy.kind === 'json') {
-      let parsed;
-      try { parsed = JSON.parse(r.body.toString('utf8')); } catch (_) {
-        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(JSON.stringify({ error: 'invalid upstream JSON' }));
+      if (alias === 'shikimori' && policy.kind === 'json' && !(await shikiTurn())) {
+        return { ok: false, status: 429, error: 'upstream request failed' };
       }
-      responseBody = Buffer.from(JSON.stringify(parsed));
-      responseType = 'application/json; charset=utf-8';
-    } else {
-      responseType = detectRasterContentType(r.body);
-      if (!responseType || !isSafeProxyContentType(responseType)) {
-        res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(JSON.stringify({ error: 'invalid upstream image' }));
+      activeUpstream++;
+      let r;
+      try {
+        r = await (policy.kind === 'json'
+          ? fetchJsonUpstream(target, { maxBytes: policy.maxBytes })
+          : fetchFollow(target, { maxBytes: policy.maxBytes }));
+      } finally {
+        activeUpstream--;
       }
-      responseBody = r.body;
-    }
-    if (alias === 'shikimori' && policy.kind === 'json') {
-      const filtered = filterBlockedAnimePayload('/' + m[2], responseBody);
-      if (filtered) {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(filtered);
+      if (r.status < 200 || r.status >= 300) {
+        return { ok: false, status: r.status >= 400 && r.status <= 599 ? r.status : 502, error: 'upstream request failed' };
       }
+      let body;
+      let ctype;
+      if (policy.kind === 'json') {
+        let parsed;
+        try { parsed = JSON.parse(r.body.toString('utf8')); } catch (_) {
+          return { ok: false, status: 502, error: 'invalid upstream JSON' };
+        }
+        body = Buffer.from(JSON.stringify(parsed));
+        ctype = 'application/json; charset=utf-8';
+      } else {
+        ctype = detectRasterContentType(r.body);
+        if (!ctype || !isSafeProxyContentType(ctype)) {
+          return { ok: false, status: 502, error: 'invalid upstream image' };
+        }
+        body = r.body;
+      }
+      if (alias === 'shikimori' && policy.kind === 'json') {
+        const filtered = filterBlockedAnimePayload('/' + m[2], body);
+        if (filtered) return { ok: true, body: filtered, ctype: 'application/json; charset=utf-8', noStore: true };
+      }
+      const now = Date.now();
+      const exp = now + (policy.kind === 'image' ? IMG_TTL_MS : jsonTtl(alias, target));
+      store.set(target, {
+        status: 200,
+        body,
+        ctype,
+        exp,
+        // JSON при отказе источника отдаём до суток давности — см. jsonCache.
+        staleUntil: policy.kind === 'json' ? now + STALE_TTL_MS : exp,
+      });
+      return { ok: true, body, ctype };
+    })();
+    proxyInflight.set(target, pending);
+    pending.then(() => proxyInflight.delete(target), () => proxyInflight.delete(target));
+    return pending;
+  };
+
+  // Устаревшая копия есть — отдаём её сразу, а свежую подтягиваем в фоне:
+  // человек не ждёт ни очереди к Shikimori, ни его отказа, а кэш обновится
+  // к следующему заходу. Устаревшее описание лучше упавшей карточки.
+  const stale = store.getStale(target);
+  if (stale) {
+    res.writeHead(200, { ...safeProxyHeaders(stale.ctype), 'X-Cache': 'STALE' });
+    res.end(stale.body);
+    load().catch((e) => console.error('proxy refresh error:', alias, e.message));
+    return;
+  }
+
+  try {
+    const result = await load();
+    if (!result.ok) {
+      const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+      if (result.retryAfter) headers['Retry-After'] = result.retryAfter;
+      res.writeHead(result.status, headers);
+      return res.end(JSON.stringify({ error: result.error }));
     }
-    cache.set(target, {
-      status: 200,
-      body: responseBody,
-      ctype: responseType,
-      exp: Date.now() + (policy.kind === 'image' ? IMG_TTL_MS : TTL_MS),
-    });
-    res.writeHead(200, safeProxyHeaders(responseType));
-    return res.end(responseBody);
-  } catch (e) { console.error('proxy error:', alias, e.message); res.writeHead(502); res.end('gateway error'); }
+    if (result.noStore) {
+      res.writeHead(200, { 'Content-Type': result.ctype, 'Cache-Control': 'no-store' });
+      return res.end(result.body);
+    }
+    res.writeHead(200, safeProxyHeaders(result.ctype));
+    return res.end(result.body);
+  } catch (e) {
+    console.error('proxy error:', alias, e.message);
+    res.writeHead(502);
+    res.end('gateway error');
+  }
 }
 // Страховка на случай промисов вне запросов (таймеры, почта): лог вместо падения процесса.
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
