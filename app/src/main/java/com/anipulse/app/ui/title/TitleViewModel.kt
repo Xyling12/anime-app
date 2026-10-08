@@ -35,6 +35,7 @@ data class TitleState(
     val status: String = "none", // watching / planned / completed / none
     val downloadedEpisodes: Set<Int> = emptySet(),
     val downloadingEpisode: Pair<Int, Int>? = null, // (episode, percent)
+    val downloadMessage: String? = null,           // итог загрузки для тоста (null = показывать нечего)
     // Соцчасть
     val ratingAvg: Double? = null,
     val ratingCount: Int = 0,
@@ -102,6 +103,20 @@ class TitleViewModel @Inject constructor(
                     }
                     else -> _state.update { it.copy(downloadingEpisode = null) }
                 }
+            }
+        }
+        // Раньше ошибка загрузки нигде не показывалась: кружок прогресса просто
+        // пропадал, и выглядело так, будто кнопка не работает.
+        viewModelScope.launch {
+            downloadManager.events.collect { event ->
+                val message = when {
+                    event is com.anipulse.app.data.download.DownloadState.Error && event.animeId == animeId ->
+                        "Серия ${event.episode} не скачалась. ${event.message}"
+                    event is com.anipulse.app.data.download.DownloadState.Completed && event.animeId == animeId ->
+                        "Серия ${event.episode} скачана — её можно смотреть без интернета"
+                    else -> null
+                }
+                if (message != null) _state.update { it.copy(downloadMessage = message) }
             }
         }
         _state.update { it.copy(isLoggedIn = settings.authToken != null, myNick = settings.authNick, episodeNotifyEnabled = animeId.toString() in settings.episodeNotifyIds) }
@@ -351,20 +366,28 @@ class TitleViewModel @Inject constructor(
         val title = details.russian?.ifBlank { null } ?: details.name
         viewModelScope.launch {
             val stream = runCatching { repo.episodeStream(dub, episode) }.getOrNull()
-            val url = stream?.byQuality?.let { q -> q[720] ?: q[480] ?: q.values.firstOrNull() } ?: stream?.embedUrl
-            if (!url.isNullOrBlank()) {
-                downloadManager.downloadEpisode(
-                    animeId = animeId,
-                    episode = episode,
-                    title = title,
-                    dubTitle = dub.title,
-                    streamUrl = url,
-                    posterId = details.id.toString(),
-                    image = details.image?.original ?: details.image?.preview,
+            // Только прямой поток. embedUrl — HTML-страница плеера, а не видео:
+            // раньше в этом случае сохранялась она под именем .mp4.
+            val url = stream?.byQuality?.let { q -> q[720] ?: q[480] ?: q.values.firstOrNull() }
+            if (url.isNullOrBlank()) {
+                downloadManager.reportError(
+                    animeId, episode, "Не удалось получить ссылку на видео. Попробуйте другую озвучку",
                 )
+                return@launch
             }
+            downloadManager.enqueue(
+                animeId = animeId,
+                episode = episode,
+                title = title,
+                dubTitle = dub.title,
+                streamUrl = url,
+                posterId = details.id.toString(),
+                image = details.image?.original ?: details.image?.preview,
+            )
         }
     }
+
+    fun clearDownloadMessage() = _state.update { it.copy(downloadMessage = null) }
 
     fun deleteDownload(episode: Int) {
         downloadManager.deleteDownload(animeId, episode)

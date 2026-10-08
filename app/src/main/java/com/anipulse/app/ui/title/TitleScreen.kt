@@ -58,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -130,6 +131,14 @@ fun TitleScreen(
     viewModel: TitleViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    // Итог загрузки серии: шторка серии к этому моменту уже закрыта, поэтому тост.
+    val toastContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(state.downloadMessage) {
+        state.downloadMessage?.let {
+            android.widget.Toast.makeText(toastContext, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearDownloadMessage()
+        }
+    }
     var commentInput by remember { mutableStateOf("") }
     var commentProfileNick by remember { mutableStateOf<String?>(null) }
     // Поиск/фильтр серий. Запрос («12», «12-15», «12..24», «12, 20») и фильтр по статусу суммируются.
