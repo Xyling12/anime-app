@@ -203,6 +203,11 @@ async function fetchJsonUpstream(target, options, retries = 2) {
 
 // Расшифровка src Kodik — в kodik-decode.js (там же объяснение и тесты).
 const { kodikDecode } = require('./kodik-decode');
+// Обход недоступного входного узла CDN — в kodik-redirect.js.
+const { resolveBlockedFront, normalizeProxy } = require('./kodik-redirect');
+const KODIK_PROXY = normalizeProxy(process.env.KODIK_PROXY || (() => {
+  try { return fs.readFileSync(dataPath('kodik-proxy'), 'utf8').trim(); } catch (_) { return ''; }
+})());
 
 // /alapi/kodik-find?shikimoriId=X -> {link, translation, quality} (маппинг по shikimori_id)
 async function handleKodikFind(id, res) {
@@ -314,6 +319,7 @@ async function handleKodik(link, episode, res) {
       let url = src.startsWith('//') ? 'https:'+src : (src.startsWith('http') ? src : kodikDecode(src));
       if (url) { if (url.startsWith('//')) url = 'https:'+url; out[q] = url; }
     }
+    await Promise.all(Object.keys(out).map(async (q) => { out[q] = await resolveBlockedFront(out[q], KODIK_PROXY); }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(out));
   } catch (e) { res.writeHead(502); res.end('kodik error: ' + e.message); }
