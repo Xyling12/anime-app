@@ -135,14 +135,14 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 confirmButton = {
                     androidx.compose.material3.Button(
                         onClick = {
-                        runCatching {
-                            val updateUri = android.net.Uri.parse(u.url)
-                            require(updateUri.scheme == "https" && updateUri.host == "anipulsetv.ru" && updateUri.path == "/alapi/apk")
-                            updCtx.startActivity(
-                                android.content.Intent(android.content.Intent.ACTION_VIEW, updateUri)
-                            )
-                        }
-                        updateDismissed = true
+                            runCatching {
+                                val updateUri = android.net.Uri.parse(u.url)
+                                require(updateUri.scheme == "https" && updateUri.host == "anipulsetv.ru" && updateUri.path == "/alapi/apk")
+                                updCtx.startActivity(
+                                    android.content.Intent(android.content.Intent.ACTION_VIEW, updateUri)
+                                )
+                            }
+                            updateDismissed = true
                         },
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4D8D)),
                     ) { Text("Обновить") }

@@ -39,4 +39,20 @@ data class EpisodeStream(
 }
 
 /** Таймкоды для пропуска (в секундах). */
-data class Skip(val start: Int, val stop: Int)
+data class Skip(val start: Int, val stop: Int) {
+    /** Непустой интервал с корректными границами (исключает 0..0 и отрицательные значения). */
+    fun isValidInterval(): Boolean = start >= 0 && stop > start
+
+    /**
+     * Проверяет, что интервал эндинга действительно относится к концовке серии.
+     * На части тайтлов источники или AniSkip отдают 0..0 либо титры в самом начале серии
+     * (например, 4..94с при длине 24 мин), из-за чего кнопка «Следующая серия» висит весь эпизод.
+     */
+    fun isValidEnding(durationMs: Long): Boolean {
+        if (durationMs <= 30_000L) return false
+        val durationSec = durationMs / 1000L
+        if (start <= 0 || stop <= start) return false
+        if (start >= durationSec) return false
+        return start >= durationSec / 2
+    }
+}

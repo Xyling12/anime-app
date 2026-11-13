@@ -9,6 +9,7 @@ import com.anipulse.app.data.video.Dub
 import com.anipulse.app.data.video.EpisodeStream
 import com.anipulse.app.data.video.PlaybackSession
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,7 @@ data class PlayerUiState(
     val autoSkipOpening: Boolean = false,
     val autoSkipRecap: Boolean = false,
     val autoNextEpisode: Boolean = true,
+    val playbackSpeed: Float = 1f,
     // Комментарии к текущей серии
     val comments: List<com.anipulse.app.data.ChatMessage> = emptyList(),
     val isLoggedIn: Boolean = false,
@@ -48,6 +50,8 @@ class PlayerViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val animeId = session.animeId
+    private var loadStreamJob: Job? = null
+    private var loadCommentsJob: Job? = null
 
     private val _state = MutableStateFlow(
         PlayerUiState(
@@ -59,6 +63,7 @@ class PlayerViewModel @Inject constructor(
             autoSkipOpening = settings.autoSkipOpening,
             autoSkipRecap = settings.autoSkipRecap,
             autoNextEpisode = settings.autoNextEpisode,
+            playbackSpeed = settings.playbackSpeed,
             isLoggedIn = settings.authToken != null,
         )
     )
@@ -67,6 +72,11 @@ class PlayerViewModel @Inject constructor(
     fun setAutoSkipOpening(v: Boolean) { settings.autoSkipOpening = v; _state.update { it.copy(autoSkipOpening = v) } }
     fun setAutoSkipRecap(v: Boolean) { settings.autoSkipRecap = v; _state.update { it.copy(autoSkipRecap = v) } }
     fun setAutoNextEpisode(v: Boolean) { settings.autoNextEpisode = v; _state.update { it.copy(autoNextEpisode = v) } }
+    fun setPlaybackSpeed(speed: Float) {
+        val safe = speed.coerceIn(0.5f, 2f)
+        settings.playbackSpeed = safe
+        _state.update { it.copy(playbackSpeed = safe) }
+    }
 
     init {
         loadStream()
@@ -77,7 +87,8 @@ class PlayerViewModel @Inject constructor(
     private fun episodeKey() = "$animeId:ep${_state.value.episode}"
 
     private fun loadComments() {
-        viewModelScope.launch {
+        loadCommentsJob?.cancel()
+        loadCommentsJob = viewModelScope.launch {
             runCatching { gateway.comments(episodeKey(), settings.authToken?.let { "Bearer $it" }) }.onSuccess { list ->
                 _state.update { it.copy(comments = list) }
             }
@@ -114,13 +125,17 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun retry() = loadStream()
+
     private fun loadStream() {
-        val s = _state.value
-        val localFile = downloadManager.getLocalFile(animeId, s.episode)
-        if (localFile != null && localFile.exists() && localFile.length() > 0) {
-            val startOver = session.startOver && s.episode == session.episode
-            session.startOver = false
-            viewModelScope.launch {
+        loadStreamJob?.cancel()
+        _state.update { it.copy(loading = true, error = null, stream = null) }
+        loadStreamJob = viewModelScope.launch {
+            val s = _state.value
+            val localFile = downloadManager.getLocalFile(animeId, s.episode)
+            if (localFile != null && localFile.exists() && localFile.length() > 0) {
+                val startOver = session.startOver && s.episode == session.episode
+                session.startOver = false
                 val saved = if (startOver) null else runCatching { progressDao.get(animeId, s.episode) }.getOrNull()
                 val localStream = EpisodeStream(
                     byQuality = mapOf(720 to localFile.absolutePath),
@@ -132,28 +147,21 @@ class PlayerViewModel @Inject constructor(
                         resumePositionMs = saved?.takeIf { p -> !p.watched }?.positionMs ?: 0,
                     )
                 }
+                return@launch
             }
-            return
-        }
 
-        if (s.selectedDub == null) {
-            _state.update { it.copy(loading = true, error = null, stream = null) }
-            viewModelScope.launch {
+            val dub = s.selectedDub ?: run {
                 val loadedDubs = runCatching { repo.dubs(animeId) }.getOrNull() ?: emptyList()
                 if (loadedDubs.isEmpty()) {
                     _state.update { it.copy(loading = false, error = "Нет доступных озвучек") }
-                } else {
-                    session.dubs = loadedDubs
-                    val selected = loadedDubs.first()
-                    _state.update { it.copy(dubs = loadedDubs, selectedDub = selected) }
-                    loadStream()
+                    return@launch
                 }
+                session.dubs = loadedDubs
+                val selected = loadedDubs.first()
+                _state.update { it.copy(dubs = loadedDubs, selectedDub = selected) }
+                selected
             }
-            return
-        }
-        val dub = s.selectedDub
-        _state.update { it.copy(loading = true, error = null, stream = null) }
-        viewModelScope.launch {
+
             val startOver = session.startOver && s.episode == session.episode
             val saved = if (startOver) null else runCatching { progressDao.get(animeId, s.episode) }.getOrNull()
             session.startOver = false

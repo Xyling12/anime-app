@@ -27,7 +27,6 @@ class VideoRepository @Inject constructor(
     private val client: OkHttpClient,
 ) {
     private val sources: List<VideoSource> = listOf(anilibria, kodik)
-    private val json = Json { ignoreUnknownKeys = true }
 
     private inline fun <T> runSuspendCatching(block: () -> T): Result<T> = try {
         Result.success(block())
@@ -45,20 +44,7 @@ class VideoRepository @Inject constructor(
                 if (it.isSuccessful) it.body?.string() else null
             }
         }.getOrNull() ?: return@withContext null to null
-        runCatching {
-            val results = json.parseToJsonElement(body).jsonObject["results"]?.jsonArray
-                ?: return@withContext null to null
-            fun find(type: String): Skip? {
-                val e = results.map { it.jsonObject }.firstOrNull { it["skipType"]?.jsonPrimitive?.content == type }
-                    ?: return null
-                val iv = e["interval"]!!.jsonObject
-                return Skip(
-                    start = iv["startTime"]!!.jsonPrimitive.content.toFloat().toInt(),
-                    stop = iv["endTime"]!!.jsonPrimitive.content.toFloat().toInt(),
-                )
-            }
-            find("op") to find("ed")
-        }.getOrDefault(null to null)
+        parseAniSkipTimes(body)
     }
 
     suspend fun dubs(malId: Long, names: List<String>): List<Dub> = coroutineScope {
@@ -72,3 +58,35 @@ class VideoRepository @Inject constructor(
         return runSuspendCatching { source.episodeStream(dub, episode) }.getOrNull()
     }
 }
+
+private val aniSkipJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * Разбирает ответ AniSkip и отсеивает битые/ранние интервалы эндинга
+ * (в некоторых сериях AniSkip отдаёт ED на первых секундах серии, напр. 4..94с при длине 1420с).
+ */
+internal fun parseAniSkipTimes(body: String): Pair<Skip?, Skip?> = runCatching {
+    val results = aniSkipJson.parseToJsonElement(body).jsonObject["results"]?.jsonArray
+        ?: return@runCatching null to null
+
+    fun find(type: String): Skip? {
+        for (el in results) {
+            val obj = el.jsonObject
+            if (obj["skipType"]?.jsonPrimitive?.content != type) continue
+            val iv = obj["interval"]?.jsonObject ?: continue
+            val start = iv["startTime"]?.jsonPrimitive?.content?.toFloatOrNull()?.toInt() ?: continue
+            val stop = iv["endTime"]?.jsonPrimitive?.content?.toFloatOrNull()?.toInt() ?: continue
+            val epLen = obj["episodeLength"]?.jsonPrimitive?.content?.toFloatOrNull() ?: 0f
+            val skip = Skip(start = start, stop = stop)
+            if (!skip.isValidInterval()) continue
+            if (epLen > 0f && start >= epLen.toInt()) continue
+            if (type == "ed") {
+                if (start <= 0) continue
+                if (epLen > 30f && start < (epLen * 0.5f).toInt()) continue
+            }
+            return skip
+        }
+        return null
+    }
+    find("op") to find("ed")
+}.getOrDefault(null to null)

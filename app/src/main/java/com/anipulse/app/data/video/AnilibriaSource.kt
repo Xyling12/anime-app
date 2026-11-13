@@ -52,7 +52,9 @@ class AnilibriaSource @Inject constructor(
         return EpisodeStream(
             byQuality = quality,
             opening = ep.opening?.toSkip(),
-            ending = ep.ending?.toSkip(),
+            // Эндинг с началом <= 0 (например, 0..0 как «нет таймкода») отбрасываем,
+            // чтобы сработал фолбэк на AniSkip и кнопка не висела с начала серии.
+            ending = ep.ending?.toSkip()?.takeIf { it.start > 0 },
         )
     }
 
@@ -86,6 +88,6 @@ class AnilibriaSource @Inject constructor(
     private fun com.anipulse.app.data.anilibria.AlSkip.toSkip(): Skip? {
         val s = start ?: return null
         val e = stop ?: return null
-        return Skip(s, e)
+        return Skip(s, e).takeIf { it.isValidInterval() }
     }
 }

@@ -123,6 +123,11 @@ class SettingsStore @Inject constructor(
         get() = prefs.getBoolean("auto_next_episode", true)
         set(v) = prefs.edit().putBoolean("auto_next_episode", v).apply()
 
+    /** Скорость воспроизведения в плеере (0.5x–2x). */
+    var playbackSpeed: Float
+        get() = prefs.getFloat("playback_speed", 1f).coerceIn(0.5f, 2f)
+        set(v) = prefs.edit().putFloat("playback_speed", v.coerceIn(0.5f, 2f)).apply()
+
     // Аккаунт AniPulse
     var authToken: String?
         get() = prefs.getString("auth_token", null)

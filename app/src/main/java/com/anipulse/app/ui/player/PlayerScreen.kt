@@ -10,6 +10,8 @@ import android.util.Rational
 import android.view.WindowManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,8 +23,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -31,9 +40,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -68,6 +81,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,8 +89,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -94,6 +111,14 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private val PLAYBACK_SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+
+internal fun formatPlaybackSpeed(speed: Float): String = when (speed) {
+    1f -> "1x"
+    2f -> "2x"
+    else -> "${speed.toString().trimEnd('0').trimEnd('.')}x"
+}
+
 private fun Activity.hidePlayerSystemBars() {
     WindowCompat.setDecorFitsSystemWindows(window, false)
     WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -110,7 +135,20 @@ fun PlayerScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
+    val componentActivity = activity as? ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
+    var isInPipMode by remember(componentActivity) {
+        mutableStateOf(componentActivity?.isInPictureInPictureMode == true)
+    }
+
+    DisposableEffect(componentActivity) {
+        if (componentActivity == null) return@DisposableEffect onDispose {}
+        val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            isInPipMode = info.isInPictureInPictureMode
+        }
+        componentActivity.addOnPictureInPictureModeChangedListener(listener)
+        onDispose { componentActivity.removeOnPictureInPictureModeChangedListener(listener) }
+    }
 
     // Полноэкранный ландшафт на время плеера; на выходе — вернуть портрет и системные панели.
     DisposableEffect(lifecycleOwner, activity) {
@@ -151,10 +189,10 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(state.error ?: "", color = Color.White)
-                TextButton(onClick = { state.selectedDub?.let(viewModel::selectDub) }) { Text("Повторить", color = Color.White) }
+                TextButton(onClick = viewModel::retry) { Text("Повторить", color = Color.White) }
                 TextButton(onClick = onBack) { Text("Назад", color = Color.White) }
             }
-            stream != null && stream.isNative -> NativePlayer(state, viewModel, onBack)
+            stream != null && stream.isNative -> NativePlayer(state, viewModel, isInPipMode, onBack)
             stream != null && stream.embedUrl != null -> {
                 WebPlayer(stream.embedUrl!!)
                 // Для fallback-плеера оставляем только кнопку «Назад»
@@ -164,18 +202,21 @@ fun PlayerScreen(
                 ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White) }
             }
         }
-        com.anipulse.app.ui.common.AgeRatingBadge(
-            Modifier.align(Alignment.BottomEnd).padding(12.dp),
-        )
+        if (!isInPipMode && (stream == null || !stream.isNative)) {
+            com.anipulse.app.ui.common.AgeRatingBadge(
+                Modifier.align(Alignment.BottomEnd).padding(12.dp),
+            )
+        }
     }
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) // кастомные thumb/track у Slider
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) // кастомные thumb/track у Slider и FlowRow для скоростей
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class) // DefaultLoadControl/PlayerView
 @Composable
 private fun NativePlayer(
     state: PlayerUiState,
     viewModel: PlayerViewModel,
+    isInPipMode: Boolean,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -216,6 +257,7 @@ private fun NativePlayer(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val currentState by rememberUpdatedState(state)
     var isPlaying by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(true) }
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -223,6 +265,7 @@ private fun NativePlayer(
     var controlsVisible by remember { mutableStateOf(true) }
     var dubMenu by remember { mutableStateOf(false) }
     var qualityMenu by remember { mutableStateOf(false) }
+    var speedMenu by remember { mutableStateOf(false) }
     var settingsMenu by remember { mutableStateOf(false) }
     var commentsMenu by remember { mutableStateOf(false) }
     // Выбранное качество; по умолчанию — до 720p (плавно; 1080p грузит сеть и лагает на старте).
@@ -231,15 +274,31 @@ private fun NativePlayer(
     var recapSkipped by remember(state.episode) { mutableStateOf(false) }
     var openingSkipped by remember(state.episode) { mutableStateOf(false) }
 
-    // Загрузка/смена потока (озвучка/серия/качество) без пересоздания плеера, с сохранением позиции.
+    LaunchedEffect(isInPipMode) {
+        if (isInPipMode) {
+            controlsVisible = false
+            dubMenu = false
+            qualityMenu = false
+            speedMenu = false
+            settingsMenu = false
+            commentsMenu = false
+        }
+    }
+
+    LaunchedEffect(exo, state.playbackSpeed) {
+        exo.setPlaybackSpeed(state.playbackSpeed)
+    }
+
+    // Загрузка/смена потока (качество/источник) без пересоздания плеера.
     LaunchedEffect(state.stream, selectedQuality) {
         val s = state.stream ?: return@LaunchedEffect
         val q = selectedQuality ?: s.bestQuality()
         val url = s.byQuality[q] ?: s.byQuality.values.firstOrNull() ?: return@LaunchedEffect
-        // На новой серии — продолжить с места остановки; при смене качества — с текущей позиции.
-        val resumeAt = maxOf(exo.currentPosition, state.resumePositionMs)
+        // При первом запуске серии — сохранённая позиция из БД; при смене качества — текущая позиция плеера.
+        val resumeAt = if (exo.currentMediaItem == null) state.resumePositionMs else exo.currentPosition
         exo.setMediaItem(MediaItem.fromUri(url))
         exo.prepare()
+        exo.setPlaybackSpeed(currentState.playbackSpeed)
         if (resumeAt > 1000) exo.seekTo(resumeAt)
         if (
             com.anipulse.app.ui.common.AppVisibility.foreground.value &&
@@ -266,7 +325,10 @@ private fun NativePlayer(
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 buffering = playbackState == Player.STATE_BUFFERING
-                if (playbackState == Player.STATE_ENDED && viewModel.state.value.autoNextEpisode && viewModel.hasNext()) viewModel.nextEpisode()
+                if (playbackState == Player.STATE_ENDED && currentState.autoNextEpisode && viewModel.hasNext()) {
+                    viewModel.markWatched(exo.currentPosition, exo.duration.coerceAtLeast(0))
+                    viewModel.nextEpisode()
+                }
             }
         }
         exo.addListener(listener)
@@ -279,6 +341,7 @@ private fun NativePlayer(
         com.anipulse.app.ui.common.AppVisibility.foreground.collectLatest { active ->
             if (!active) return@collectLatest
             while (true) {
+                val latestState = currentState
                 positionMs = exo.currentPosition
                 durationMs = exo.duration.coerceAtLeast(0)
                 isPlaying = exo.isPlaying
@@ -286,15 +349,15 @@ private fun NativePlayer(
                 val sec = positionMs / 1000
                 // Авто-пропуск повтора (в самом начале серии). Прыгаем на начало опенинга
                 // (если есть таймкоды) или на 80с — иначе при «текущая + 80_000» улетим за опенинг.
-                val opForRecap = state.stream?.opening
+                val opForRecap = latestState.stream?.opening
                 val openingStartSec = opForRecap?.start?.toLong()
-                if (state.autoSkipRecap && !recapSkipped && sec in 3..8 && durationMs > 200_000) {
+                if (latestState.autoSkipRecap && !recapSkipped && sec in 3..8 && durationMs > 200_000) {
                     exo.seekTo(openingStartSec?.times(1000L) ?: 80_000L); recapSkipped = true
                 }
                 // Авто-пропуск опенинга. Правая граница — строго, и прыжок в фиксированную позицию.
-                if (state.autoSkipOpening && !openingSkipped && durationMs > 200_000) {
-                    val op = state.stream?.opening
-                    if (op != null && sec >= op.start.toLong() && sec < op.stop.toLong()) {
+                if (latestState.autoSkipOpening && !openingSkipped && durationMs > 200_000) {
+                    val op = latestState.stream?.opening
+                    if (op != null && op.isValidInterval() && sec >= op.start.toLong() && sec < op.stop.toLong()) {
                         exo.seekTo(op.stop * 1000L); openingSkipped = true
                     } else if (op == null && sec in 5..85) {
                         exo.seekTo(90_000L); openingSkipped = true
@@ -388,47 +451,94 @@ private fun NativePlayer(
         if (volumeOverlay >= 0) GestureBadge(Icons.Filled.VolumeUp, volumeOverlay)
 
         // Панели управления (с автоскрытием)
-        AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(visible = controlsVisible && !isInPipMode, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
                 // Верхняя строка
                 Row(
-                    Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(8.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                     }
-                    Text(
-                        "${state.title} · Серия ${state.episode}",
-                        color = Color.White, fontWeight = FontWeight.Medium,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.padding(start = 10.dp))
-                    Spacer(Modifier.weight(1f))
+                    // Заголовок ограничен одной строкой с троеточием, чтобы длинное название
+                    // не растягивало шапку вниз и не выталкивало правые кнопки (в т.ч. мини-плеер).
+                    Row(
+                        Modifier.weight(1f).padding(end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (state.title.isNotBlank()) {
+                            Text(
+                                state.title,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                        Text(
+                            if (state.title.isNotBlank()) " · Серия ${state.episode}" else "Серия ${state.episode}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                        com.anipulse.app.ui.common.AgeRatingBadge(Modifier.padding(start = 10.dp))
+                    }
                     // Выбор качества
                     val qualities = state.stream?.byQuality?.keys?.sortedDescending().orEmpty()
                     if (qualities.isNotEmpty()) {
-                        TextButton(onClick = { qualityMenu = !qualityMenu; dubMenu = false }) {
-                            Text("${selectedQuality ?: qualities.first()}p", color = Color.White)
+                        TextButton(
+                            onClick = { qualityMenu = !qualityMenu; dubMenu = false; speedMenu = false; settingsMenu = false; commentsMenu = false },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("${selectedQuality ?: qualities.first()}p", color = Color.White, maxLines = 1, softWrap = false)
                         }
                     }
                     state.selectedDub?.let { dub ->
-                        TextButton(onClick = { dubMenu = !dubMenu; qualityMenu = false }) { Text(dub.title, color = Color.White) }
+                        TextButton(
+                            onClick = { dubMenu = !dubMenu; qualityMenu = false; speedMenu = false; settingsMenu = false; commentsMenu = false },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.widthIn(max = 150.dp),
+                        ) {
+                            Text(
+                                dub.title,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
-                    IconButton(onClick = { commentsMenu = !commentsMenu; settingsMenu = false; dubMenu = false; qualityMenu = false }) {
+                    IconButton(onClick = { commentsMenu = !commentsMenu; speedMenu = false; settingsMenu = false; dubMenu = false; qualityMenu = false }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Комментарии к серии", tint = Color.White)
                     }
                     IconButton(
                         onClick = {
-                            activity?.enterPictureInPictureMode(
-                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build(),
-                            )
                             controlsVisible = false
+                            dubMenu = false
+                            qualityMenu = false
+                            speedMenu = false
+                            settingsMenu = false
+                            commentsMenu = false
+                            runCatching {
+                                activity?.enterPictureInPictureMode(
+                                    PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build(),
+                                )
+                            }.onFailure {
+                                Toast.makeText(context, "Мини-плеер недоступен на этом устройстве", Toast.LENGTH_SHORT).show()
+                            }
                         },
                     ) {
                         Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "Плавающее окно", tint = Color.White)
                     }
-                    IconButton(onClick = { settingsMenu = !settingsMenu; dubMenu = false; qualityMenu = false; commentsMenu = false }) {
+                    IconButton(onClick = { settingsMenu = !settingsMenu; speedMenu = false; dubMenu = false; qualityMenu = false; commentsMenu = false }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Настройки", tint = Color.White)
                     }
                 }
@@ -478,7 +588,11 @@ private fun NativePlayer(
 
                 // Нижняя строка: время, сикбар, следующая серия
                 Row(
-                    Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
@@ -519,93 +633,123 @@ private fun NativePlayer(
                         )
                         // Метки: конец опенинга (жёлтая), начало эндинга (оранжевая)
                         if (durationMs > 0) {
-                            state.stream?.opening?.let { op ->
+                            state.stream?.opening?.takeIf { it.isValidInterval() }?.let { op ->
                                 SeekMarker(op.stop * 1000L / durationMs.toFloat(), Color(0xFFFFD54F))
                             }
-                            state.stream?.ending?.let { ed ->
+                            state.stream?.ending?.takeIf { it.isValidEnding(durationMs) }?.let { ed ->
                                 SeekMarker(ed.start * 1000L / durationMs.toFloat(), Color(0xFFFF8A65))
                             }
                         }
                     }
                     Text(formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    TextButton(
+                        onClick = {
+                            speedMenu = !speedMenu
+                            qualityMenu = false
+                            dubMenu = false
+                            settingsMenu = false
+                            commentsMenu = false
+                            controlsVisible = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            formatPlaybackSpeed(state.playbackSpeed),
+                            color = if (state.playbackSpeed != 1f) MaterialTheme.colorScheme.primary else Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
                 }
             }
         }
 
-        // Кнопка «Пропустить опенинг»: по таймкодам (AniLibria) либо запасной прыжок ~на 90с для любого источника.
-        // Правая граница диапазона — строго (until), иначе кнопка не пропадает после seekTo на op.stop.
-        // Прыжок делаем в фиксированную позицию (op.stop*1000 или 90_000), а не «текущая + N»:
-        // иначе при втором тике после нажатия можно улететь за опенинг.
-        run {
-            val op = state.stream?.opening
-            val sec = positionMs / 1000
-            val showByTimecode = op != null && sec >= op.start.toLong() && sec < op.stop.toLong()
-            val showGeneric = op == null && sec in 5L..80L && durationMs > 200_000
-            if (!openingSkipped && (showByTimecode || showGeneric)) {
-                TextButton(
-                    onClick = {
-                        if (op != null) exo.seekTo(op.stop * 1000L) else exo.seekTo(90_000L)
-                        openingSkipped = true
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 128.dp, end = 16.dp)
-                        .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
-                ) { Text("Пропустить опенинг ⏭", color = Color.White) }
+        if (!isInPipMode) {
+            // Кнопка «Пропустить опенинг»: по таймкодам (AniLibria) либо запасной прыжок ~на 90с для любого источника.
+            // Правая граница диапазона — строго (until), иначе кнопка не пропадает после seekTo на op.stop.
+            // Прыжок делаем в фиксированную позицию (op.stop*1000 или 90_000), а не «текущая + N»:
+            // иначе при втором тике после нажатия можно улететь за опенинг.
+            run {
+                val op = state.stream?.opening?.takeIf { it.isValidInterval() }
+                val sec = positionMs / 1000
+                val showByTimecode = op != null && sec >= op.start.toLong() && sec < op.stop.toLong()
+                val showGeneric = op == null && sec in 5L..80L && durationMs > 200_000
+                if (!openingSkipped && (showByTimecode || showGeneric)) {
+                    TextButton(
+                        onClick = {
+                            if (op != null) exo.seekTo(op.stop * 1000L) else exo.seekTo(90_000L)
+                            openingSkipped = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 128.dp, end = 16.dp)
+                            .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
+                    ) { Text("Пропустить опенинг ⏭", color = Color.White) }
+                }
             }
-        }
 
-        // Кнопка «Следующая серия» на эндинге (по таймкодам AniSkip)
-        // Перед переходом помечаем текущую серию просмотренной — иначе при эндинге ~80–95%
-        // видео галочка не загорается и тайтл снова предлагают «продолжить».
-        state.stream?.ending?.let { ed ->
-            val sec = positionMs / 1000
-            if (sec >= ed.start && viewModel.hasNext()) {
-                TextButton(
-                    onClick = {
-                        viewModel.markWatched(positionMs, durationMs)
-                        viewModel.nextEpisode()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(bottom = 72.dp, end = 16.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)),
-                ) { Text("Следующая серия ⏭", color = Color.White) }
+            // Кнопка «Следующая серия» на эндинге (по таймкодам AniSkip)
+            // Перед переходом помечаем текущую серию просмотренной — иначе при эндинге ~80–95%
+            // видео галочка не загорается и тайтл снова предлагают «продолжить».
+            state.stream?.ending?.takeIf { it.isValidEnding(durationMs) }?.let { ed ->
+                val sec = positionMs / 1000
+                if (sec >= ed.start && viewModel.hasNext()) {
+                    TextButton(
+                        onClick = {
+                            viewModel.markWatched(positionMs, durationMs)
+                            viewModel.nextEpisode()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 72.dp, end = 16.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)),
+                    ) { Text("Следующая серия ⏭", color = Color.White) }
+                }
             }
         }
 
         // Слой-диссмисс: тап мимо закрывает открытое меню
-        if (dubMenu || qualityMenu || settingsMenu || commentsMenu) {
+        if (dubMenu || qualityMenu || speedMenu || settingsMenu || commentsMenu) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .pointerInput(dubMenu, qualityMenu, settingsMenu, commentsMenu) {
-                        detectTapGestures { dubMenu = false; qualityMenu = false; settingsMenu = false; commentsMenu = false }
+                    .pointerInput(dubMenu, qualityMenu, speedMenu, settingsMenu, commentsMenu) {
+                        detectTapGestures { dubMenu = false; qualityMenu = false; speedMenu = false; settingsMenu = false; commentsMenu = false }
                     }
             )
         }
 
-        // Кнопка «Пропустить повтор» (в начале серии)
-        // Прыгаем в начало опенинга (если есть таймкоды) либо на фиксированные 80с.
-        // Не прибавляем «текущая + 80_000» — иначе улетим за опенинг при втором тике.
-        run {
-            val sec = positionMs / 1000
-            val op = state.stream?.opening
-            val openingStart = op?.start?.toLong()
-            val beforeOpening = openingStart == null || sec < openingStart
-            if (!recapSkipped && sec in 3L..15L && beforeOpening && durationMs > 200_000) {
-                TextButton(
-                    onClick = {
-                        exo.seekTo(openingStart?.times(1000L) ?: 80_000L)
-                        recapSkipped = true
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        // Вертикальный стек: следующая серия 72dp, опенинг 128dp, повтор 184dp.
-                        // Раньше повтор (120dp) физически накладывался на опенинг (128dp).
-                        .padding(bottom = 184.dp, end = 16.dp)
-                        .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
-                ) { Text("Пропустить повтор ⏭", color = Color.White) }
+        if (!isInPipMode) {
+            // Кнопка «Пропустить повтор» (в начале серии)
+            // Прыгаем в начало опенинга (если есть таймкоды) либо на фиксированные 80с.
+            // Не прибавляем «текущая + 80_000» — иначе улетим за опенинг при втором тике.
+            run {
+                val sec = positionMs / 1000
+                val op = state.stream?.opening?.takeIf { it.isValidInterval() }
+                val openingStart = op?.start?.toLong()
+                val beforeOpening = openingStart == null || sec < openingStart
+                if (!recapSkipped && sec in 3L..15L && beforeOpening && durationMs > 200_000) {
+                    TextButton(
+                        onClick = {
+                            exo.seekTo(openingStart?.times(1000L) ?: 80_000L)
+                            recapSkipped = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            // Вертикальный стек: следующая серия 72dp, опенинг 128dp, повтор 184dp.
+                            // Раньше повтор (120dp) физически накладывался на опенинг (128dp).
+                            .padding(bottom = 184.dp, end = 16.dp)
+                            .background(Color(0xCC000000), RoundedCornerShape(8.dp)),
+                    ) { Text("Пропустить повтор ⏭", color = Color.White) }
+                }
+            }
+
+            if (!controlsVisible) {
+                com.anipulse.app.ui.common.AgeRatingBadge(
+                    Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                )
             }
         }
 
@@ -710,7 +854,11 @@ private fun NativePlayer(
 
         AnimatedVisibility(visible = settingsMenu, modifier = Modifier.align(Alignment.CenterEnd)) {
             Column(
-                Modifier.fillMaxHeight().background(Color(0xE6000000)).padding(16.dp)
+                Modifier
+                    .fillMaxHeight()
+                    .background(Color(0xE6000000))
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
                     .pointerInput(Unit) { detectTapGestures { } },
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -726,6 +874,40 @@ private fun NativePlayer(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Автопереход к след. серии", color = Color.White, modifier = Modifier.width(200.dp))
                     Switch(checked = state.autoNextEpisode, onCheckedChange = viewModel::setAutoNextEpisode)
+                }
+                Text("Скорость воспроизведения", color = Color.White, fontWeight = FontWeight.Medium)
+                FlowRow(
+                    modifier = Modifier.width(260.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    PLAYBACK_SPEEDS.forEach { spd ->
+                        FilterChip(
+                            selected = spd == state.playbackSpeed,
+                            onClick = { viewModel.setPlaybackSpeed(spd) },
+                            label = { Text(formatPlaybackSpeed(spd)) },
+                        )
+                    }
+                }
+            }
+        }
+
+        // Меню выбора скорости воспроизведения
+        AnimatedVisibility(visible = speedMenu, modifier = Modifier.align(Alignment.CenterEnd)) {
+            Column(
+                Modifier.fillMaxHeight().background(Color(0xE6000000)).padding(12.dp)
+                    .pointerInput(Unit) { detectTapGestures { } },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Скорость", color = Color.White, fontWeight = FontWeight.SemiBold)
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(PLAYBACK_SPEEDS) { spd ->
+                        FilterChip(
+                            selected = spd == state.playbackSpeed,
+                            onClick = { viewModel.setPlaybackSpeed(spd); speedMenu = false },
+                            label = { Text(formatPlaybackSpeed(spd)) },
+                        )
+                    }
                 }
             }
         }
