@@ -3,5 +3,10 @@ allowBuilds:
   unrs-resolver: set this to true or false
 
 # nanoid <3.3.18 приходит транзитивно через next>postcss (GHSA-2v37-7h3g-55p8).
+# source-map-js <1.2.2 — оттуда же (GHSA-68fv-2mgg-jv7q).
+# sharp <0.35.5 — через next, уязвимость в librsvg (GHSA-wq5f-xc86-pv6w);
+# next сам просит ^0.35.3, так что это патч в его же диапазоне.
 overrides:
   nanoid: '>=3.3.18'
+  source-map-js: '^1.2.2'
+  sharp: '^0.35.5'

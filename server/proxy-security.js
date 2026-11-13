@@ -82,12 +82,23 @@ function onlyQueryParams(url, allowed) {
   return true;
 }
 
+/**
+ * Новое хранилище постеров Shikimori: `/uploads/poster/animes/<id>/main-<hash>.webp`.
+ * Старый путь `/system/animes/...` есть не у всех тайтлов — у новых REST отдаёт заглушку.
+ */
+function isShikimoriPosterPath(path) {
+  return /^\/uploads\/poster\/animes\/\d{1,10}\/[a-z0-9_-]{1,120}\.(?:avif|gif|jpe?g|png|webp)$/i.test(path);
+}
+
 function publicProxyPolicy(alias, target) {
   const url = new URL(target);
   const path = url.pathname;
   if (alias === 'shikimori') {
     if (/^\/system\/animes\/(?:original|preview|x48|x96)\/[a-z0-9_./-]+\.(?:avif|gif|jpe?g|png|webp)$/i.test(path) &&
         (!url.search || /^\?\d{1,20}$/.test(url.search))) {
+      return { kind: 'image', maxBytes: 4 * 1024 * 1024 };
+    }
+    if (isShikimoriPosterPath(path) && !url.search) {
       return { kind: 'image', maxBytes: 4 * 1024 * 1024 };
     }
     if (path === '/api/animes') {
@@ -216,11 +227,20 @@ class ByteLruCache {
     const value = this.map.get(key);
     if (!value) return null;
     if (value.exp <= now) {
-      this.delete(key);
+      // Просроченную запись с staleUntil не выбрасываем: её отдаст getStale(),
+      // когда источник откажет.
+      if ((value.staleUntil || value.exp) <= now) this.delete(key);
       return null;
     }
     this.map.delete(key);
     this.map.set(key, value);
+    return value;
+  }
+
+  /** Запись, даже просроченная, пока не вышел её staleUntil — на случай отказа источника. */
+  getStale(key, now = Date.now()) {
+    const value = this.map.get(key);
+    if (!value || (value.staleUntil || value.exp) <= now) return null;
     return value;
   }
 
@@ -238,7 +258,7 @@ class ByteLruCache {
 
   prune(now = Date.now()) {
     for (const [key, value] of this.map) {
-      if (value.exp <= now) this.delete(key);
+      if ((value.staleUntil || value.exp) <= now) this.delete(key);
     }
   }
 }
@@ -250,6 +270,7 @@ module.exports = {
   detectRasterContentType,
   isPrivateOrReservedIp,
   isSafeProxyContentType,
+  isShikimoriPosterPath,
   publicProxyPolicy,
   safeProxyHeaders,
 };
