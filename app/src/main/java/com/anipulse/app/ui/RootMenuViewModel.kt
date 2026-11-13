@@ -41,12 +41,14 @@ class RootMenuViewModel @Inject constructor(
     }
 
     init {
-        viewModelScope.launchForegroundPolling(60_000) {
-            // Проверяем OTA не только при холодном запуске: серверный манифест
-            // мог обновиться, пока приложение было открыто.
-            runCatching { gateway.appVersion() }.onSuccess { v ->
-                if (v.versionCode > BuildConfig.VERSION_CODE && v.url.isNotBlank()) {
-                    update.value = v
+        if (BuildConfig.ENABLE_OTA) {
+            viewModelScope.launchForegroundPolling(60_000) {
+                // Проверяем OTA не только при холодном запуске: серверный манифест
+                // мог обновиться, пока приложение было открыто.
+                runCatching { gateway.appVersion() }.onSuccess { v ->
+                    if (v.versionCode > BuildConfig.VERSION_CODE && v.url.isNotBlank()) {
+                        update.value = v
+                    }
                 }
             }
         }

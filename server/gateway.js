@@ -2662,7 +2662,7 @@ async function route(req, res) {
   if (req.url === '/recommendations-rules') return handleRecommendationsRulesPage(res);
   if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
   if (req.url.startsWith('/auth/android-callback')) {
-    const html = legalPage('Возврат в приложение', '<h2>Вернитесь в AniPulse</h2><p>Если приложение не открылось автоматически, установите актуальную beta-версию и повторите вход.</p>');
+    const html = legalPage('Возврат в приложение', '<h2>Вернитесь в AniPulse</h2><p>Если приложение не открылось автоматически, установите актуальную версию приложения и повторите вход.</p>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(html);
   }

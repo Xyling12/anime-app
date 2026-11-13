@@ -1,5 +1,6 @@
 package com.anipulse.app.di
 
+import com.anipulse.app.BuildConfig
 import com.anipulse.app.data.Api
 import com.anipulse.app.data.anilibria.AnilibriaApi
 import com.anipulse.app.data.shikimori.ShikimoriApi
@@ -31,7 +32,7 @@ object NetworkModule {
         .addInterceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()
-                    .header("User-Agent", "AnimeLib/0.1 (Android)")
+                    .header("User-Agent", "AniPulse/${BuildConfig.VERSION_NAME} (Android)")
                     .build()
             )
         }

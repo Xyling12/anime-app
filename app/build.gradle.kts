@@ -28,8 +28,8 @@ android {
         applicationId = "com.anipulse.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.7.4"
+        versionCode = 32
+        versionName = "1.0.0"
 
         ndk {
             // Нативные библиотеки SQLCipher весят ~5 МБ на каждую архитектуру. x86 и x86_64
@@ -39,6 +39,20 @@ android {
             // Отладочные сборки фильтр не трогает (см. ниже), иначе приложение перестало бы
             // ставиться на эмулятор.
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
+    }
+
+    flavorDimensions += "dist"
+    productFlavors {
+        create("rustore") {
+            dimension = "dist"
+            // Сборка для магазина RuStore: самообновление по воздуху отключено.
+            buildConfigField("boolean", "ENABLE_OTA", "false")
+        }
+        create("direct") {
+            dimension = "dist"
+            // Прямая сборка с сайта: проверяет новые версии через /alapi/app-version.
+            buildConfigField("boolean", "ENABLE_OTA", "true")
         }
     }
 
@@ -106,7 +120,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.retrofit)
-    implementation(libs.okhttp.logging)
+    implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.retrofit.kotlinx.converter)
     implementation(libs.coil.compose)

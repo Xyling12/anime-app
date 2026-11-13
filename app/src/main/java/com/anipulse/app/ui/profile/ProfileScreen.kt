@@ -27,11 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Notifications
@@ -404,19 +404,13 @@ private fun ProfileRedesign(
             ReferenceRow(Icons.Outlined.Security, "Правила сообщества", onClick = {
                 openUrl(context, "https://anipulsetv.ru/community-rules")
             })
-            ReferenceRow(Icons.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
+            ReferenceRow(Icons.AutoMirrored.Outlined.HelpOutline, "Справка и поддержка", onClick = { profileDialog = "help" })
             ReferenceRow(Icons.Outlined.Security, "Правообладателям", onClick = {
                 openUrl(context, "https://anipulsetv.ru/for-right-holders")
             })
         }
         ReferenceGroup {
             ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)
-            Text(
-                "Приложение находится на стадии разработки",
-                modifier = Modifier.padding(start = 40.dp, end = 12.dp, bottom = 10.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         if (state.nick == null) {
             Button(

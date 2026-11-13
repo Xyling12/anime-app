@@ -118,11 +118,11 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         // Нижняя навигация + общая шапка видны только на 5 основных вкладках;
         // страница тайтла и плеер — во весь экран.
         val currentTab = tabs.firstOrNull { tab -> currentDestination?.hierarchy?.any { it.route == tab.route } == true }
-        // OTA: диалог «Вышло обновление» (сервер /alapi/app-version)
+        // OTA: диалог «Вышло обновление» (сервер /alapi/app-version, только для direct-сборки)
         val updateInfo by menuViewModel.update.collectAsState()
         var updateDismissed by remember { mutableStateOf(false) }
         val updCtx = androidx.compose.ui.platform.LocalContext.current
-        updateInfo?.takeIf { !updateDismissed }?.let { u ->
+        if (com.anipulse.app.BuildConfig.ENABLE_OTA) updateInfo?.takeIf { !updateDismissed }?.let { u ->
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { updateDismissed = true },
                 icon = {

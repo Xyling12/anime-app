@@ -6,7 +6,7 @@
 
     <application
         android:name=".AnimeLibApp"
-        android:label="AniPulse Beta"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.AnimeLib"
         android:usesCleartextTraffic="false"
@@ -43,7 +43,7 @@
         <receiver
             android:name=".widget.AniPulseWidgetProvider"
             android:exported="true"
-            android:label="AniPulse: Продолжить">
+            android:label="@string/widget_continue_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
