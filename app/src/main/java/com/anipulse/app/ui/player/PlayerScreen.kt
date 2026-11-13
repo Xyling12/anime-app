@@ -8,8 +8,11 @@ import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.util.Rational
 import android.view.WindowManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.anipulse.app.data.video.WebPlayerPolicy
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -1004,15 +1007,49 @@ private fun formatTime(ms: Long): String {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun WebPlayer(url: String) {
+    if (!WebPlayerPolicy.isAllowedInitialUrl(url)) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Недопустимый источник плеера", color = Color.White)
+        }
+        return
+    }
     AndroidView(
         factory = { ctx ->
             WebView(ctx).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
-                webViewClient = WebViewClient()
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                settings.setSupportMultipleWindows(false)
+                tag = url
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                    ): Boolean {
+                        val target = request?.url?.toString().orEmpty()
+                        val currentInitial = (view?.tag as? String) ?: url
+                        return !WebPlayerPolicy.isAllowedNavigation(target, currentInitial)
+                    }
+                }
                 loadUrl(url)
             }
+        },
+        update = { view ->
+            if (view.tag != url && WebPlayerPolicy.isAllowedInitialUrl(url)) {
+                view.tag = url
+                view.loadUrl(url)
+            }
+        },
+        onRelease = { view ->
+            view.stopLoading()
+            view.loadUrl("about:blank")
+            view.destroy()
         },
         modifier = Modifier.fillMaxSize(),
     )

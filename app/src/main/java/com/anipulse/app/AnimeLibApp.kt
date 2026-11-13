@@ -7,21 +7,35 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.anipulse.app.notify.NotifyWorker
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.components.SingletonComponent
+import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 @HiltAndroidApp
 class AnimeLibApp : Application(), coil.ImageLoaderFactory {
 
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface AppHttpEntryPoint {
+        fun okHttpClient(): OkHttpClient
+    }
+
     /**
-     * Общий загрузчик картинок: до 2 повторов при сетевом сбое/5xx.
-     * Лечит «постер то есть, то нет» — разовые обрывы на мобильной сети
-     * раньше оставляли пустую карточку до пересоздания элемента списка.
+     * Общий загрузчик картинок поверх единого OkHttpClient-пула: до 2 повторов при сетевом сбое/5xx.
+     * Собственный DiskCache Coil (96 МБ) избавляет от дублирования кэша картинок в http_cache.
      */
-    override fun newImageLoader(): coil.ImageLoader =
-        coil.ImageLoader.Builder(this)
+    override fun newImageLoader(): coil.ImageLoader {
+        val baseClient = EntryPointAccessors
+            .fromApplication(this, AppHttpEntryPoint::class.java)
+            .okHttpClient()
+        return coil.ImageLoader.Builder(this)
             .okHttpClient {
-                okhttp3.OkHttpClient.Builder()
+                baseClient.newBuilder()
+                    .cache(null)
                     .addInterceptor { chain ->
                         var tries = 0
                         var lastError: java.io.IOException? = null
@@ -40,8 +54,20 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
                     }
                     .build()
             }
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(96L * 1024L * 1024L)
+                    .build()
+            }
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(0.20)
+                    .build()
+            }
             .crossfade(false)
             .build()
+    }
 
     override fun onCreate() {
         super.onCreate()

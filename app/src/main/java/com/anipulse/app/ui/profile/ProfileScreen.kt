@@ -773,6 +773,17 @@ private fun AdminAnalyticsCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (value.versions.isNotEmpty()) {
+                    val versionsSummary = value.versions.entries
+                        .sortedByDescending { it.value }
+                        .take(5)
+                        .joinToString(" · ") { "${it.key}: ${it.value}" }
+                    Text(
+                        "Версии (30 дн.): $versionsSummary",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 Text("Статистика временно недоступна", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
