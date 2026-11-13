@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -98,10 +100,12 @@ fun HomeAllScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
           if (section == HomeSection.CONTINUE) {
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxHeight().widthIn(max = 760.dp).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                 items(continueItems, key = { it.animeId }) { item ->
                     Surface(
                         Modifier.fillMaxWidth().clickable { onTitleClick(item.animeId) },
@@ -128,6 +132,7 @@ fun HomeAllScreen(
                         }
                     }
                 }
+              }
             }
           } else {
             val anime = when (section) {

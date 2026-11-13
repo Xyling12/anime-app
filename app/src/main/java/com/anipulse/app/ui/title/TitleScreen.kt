@@ -214,10 +214,16 @@ fun TitleScreen(
         else -> {
             val d = state.details
             val displayTitle = d?.russian?.ifBlank { null } ?: d?.name
+            val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
+            val contentWidth = Modifier.fillMaxWidth().widthIn(max = 880.dp)
+            val heroHeight = if (adaptive.widthClass == com.anipulse.app.ui.common.WidthClass.COMPACT) 340.dp else 400.dp
 
-            LazyColumn(Modifier.fillMaxSize().imePadding()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().imePadding(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 item {
-                    Box(Modifier.fillMaxWidth().height(340.dp)) {
+                    Box(Modifier.fillMaxWidth().height(heroHeight)) {
                         AsyncImage(
                             model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                                 .data(posterOf(animeId, d?.image))
@@ -276,7 +282,7 @@ fun TitleScreen(
                                     tint = if (state.isFavorite) Color(0xFFEF5350) else Color.White,
                                 )
                             }
-                            Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                            Column(Modifier.align(Alignment.BottomStart).widthIn(max = 880.dp).padding(16.dp)) {
                                 Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text(
                                     listOfNotNull(
@@ -304,6 +310,7 @@ fun TitleScreen(
                 if (!state.isLoading && d != null) {
                     item {
                         LazyRow(
+                            modifier = contentWidth,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -315,7 +322,7 @@ fun TitleScreen(
                         item {
                             // Свёрнутое описание: 4 строки + «Развернуть»/«Свернуть»
                             var expanded by remember { mutableStateOf(false) }
-                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Column(contentWidth.padding(horizontal = 16.dp, vertical = 8.dp)) {
                                 Text(
                                     desc.replace(Regex("\\[[^]]*]"), ""),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -342,8 +349,7 @@ fun TitleScreen(
                             val (ep, posMs) = viewModel.resumeTarget()
                             val sec = posMs / 1000
                             Row(
-                                Modifier
-                                    .fillMaxWidth()
+                                contentWidth
                                     .padding(horizontal = 16.dp, vertical = 8.dp)
                                     .clip(RoundedCornerShape(50))
                                     .background(Brush.linearGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF4D8D))))
@@ -367,7 +373,7 @@ fun TitleScreen(
                 // Статус в «Моё»: Смотрю / В планах / Просмотрено
                 item {
                     Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        contentWidth.padding(horizontal = 16.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         listOf("watching" to "Смотрю", "planned" to "В планах", "completed" to "Просмотрено").forEach { (key, label) ->
@@ -382,6 +388,7 @@ fun TitleScreen(
 
                 // Моя оценка (1–10) + рейтинг AniPulse
                 item {
+                  Column(contentWidth) {
                     Row(
                         Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -460,10 +467,12 @@ fun TitleScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                  }
                 }
 
                 // Озвучки
                 item {
+                  Column(contentWidth) {
                     Text(
                         "Озвучка",
                         Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -493,6 +502,7 @@ fun TitleScreen(
                             }
                         }
                     }
+                  }
                 }
 
                 // «Порядок просмотра» — если у тайтла есть связанные (sequel/prequel/side_story/…).
@@ -500,7 +510,7 @@ fun TitleScreen(
                     item {
                         Text(
                             "Порядок просмотра",
-                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentWidth.padding(horizontal = 16.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -508,6 +518,7 @@ fun TitleScreen(
                     item {
                         val currentId = viewModel.animeId
                         LazyRow(
+                            modifier = contentWidth,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
@@ -591,6 +602,7 @@ fun TitleScreen(
 
                 if (state.dubs.isNotEmpty()) {
                     item {
+                      Column(contentWidth) {
                         Text(
                             "Серии",
                             Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -637,6 +649,7 @@ fun TitleScreen(
                                 )
                             }
                         }
+                      }
                     }
                     // Сначала фильтруем по статусу, потом по поисковому запросу.
                     val total = viewModel.episodeCount()
@@ -656,23 +669,24 @@ fun TitleScreen(
                         item {
                             Text(
                                 "Серий не найдено",
-                                Modifier.fillMaxWidth().padding(16.dp),
+                                contentWidth.padding(16.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     } else {
+                        val episodeCols = adaptive.episodeColumns
                         item {
                             Text(
                                 "Показано ${visible.size} из $total",
-                                Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                contentWidth.padding(horizontal = 16.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        items(visible.chunked(5), key = { row -> row.first() }) { rowEps ->
+                        items(visible.chunked(episodeCols), key = { row -> row.first() }) { rowEps ->
                             Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                contentWidth.padding(horizontal = 16.dp, vertical = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 rowEps.forEach { ep ->
@@ -744,8 +758,8 @@ fun TitleScreen(
                                         }
                                     }
                                 }
-                                // добивка пустыми ячейками до 5 колонок
-                                repeat(5 - rowEps.size) { Spacer(Modifier.weight(1f)) }
+                                // добивка пустыми ячейками до текущей сетки колонок
+                                repeat(episodeCols - rowEps.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
                     }
@@ -755,7 +769,7 @@ fun TitleScreen(
                 item {
                     Text(
                         "Комментарии · ${state.comments.size}",
-                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentWidth.padding(horizontal = 16.dp, vertical = 10.dp),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -763,7 +777,7 @@ fun TitleScreen(
                 items(state.comments, key = { "cm-${it.id}" }) { cm ->
                     // Спойлеры скрыты до тапа
                     var revealed by remember(cm.id) { mutableStateOf(false) }
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    Row(contentWidth.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         Box(Modifier.clickable { commentProfileNick = cm.nick }) {
                             com.anipulse.app.ui.common.Avatar(
                                 cm.avatar,
@@ -779,7 +793,7 @@ fun TitleScreen(
                                 .clip(RoundedCornerShape(4.dp, 14.dp, 14.dp, 14.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                                .widthIn(max = 290.dp),
+                                .widthIn(max = if (adaptive.widthClass == com.anipulse.app.ui.common.WidthClass.COMPACT) 290.dp else 540.dp),
                         ) {
                             Text(
                                 cm.nick,
@@ -824,7 +838,7 @@ fun TitleScreen(
                 item {
                     if (state.isLoggedIn) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            contentWidth.padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             androidx.compose.material3.OutlinedTextField(
@@ -863,7 +877,7 @@ fun TitleScreen(
                     } else {
                         Text(
                             "Войдите, чтобы комментировать",
-                            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            contentWidth.padding(horizontal = 16.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

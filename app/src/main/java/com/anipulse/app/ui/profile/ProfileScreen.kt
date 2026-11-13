@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -249,8 +250,10 @@ private fun ProfileRedesign(
         )
     }
     val hours = state.watchTimeMs / 3_600_000
+    val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+        Modifier.fillMaxHeight().widthIn(max = adaptive.readableMaxWidth).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,6 +431,7 @@ private fun ProfileRedesign(
             ) { Text("Создать аккаунт", fontWeight = FontWeight.Bold) }
         }
         Spacer(Modifier.height(12.dp))
+    }
     }
 }
 

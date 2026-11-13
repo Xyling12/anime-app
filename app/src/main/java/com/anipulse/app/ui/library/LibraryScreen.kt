@@ -55,7 +55,9 @@ fun LibraryScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    Column(Modifier.fillMaxSize().padding(top = 8.dp)) {
+    val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(Modifier.fillMaxHeight().widthIn(max = adaptive.readableMaxWidth).fillMaxWidth().padding(top = 8.dp)) {
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -164,6 +166,7 @@ fun LibraryScreen(
                 }
             }
         }
+    }
     }
 }
 

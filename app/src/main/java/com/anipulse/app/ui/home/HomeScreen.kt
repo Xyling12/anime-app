@@ -9,7 +9,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
+import com.anipulse.app.ui.common.WidthClass
+import com.anipulse.app.ui.common.rememberAdaptiveLayout
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,6 +64,7 @@ fun HomeScreen(
     // карточка вернётся только после повторного открытия серии.
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val adaptive = rememberAdaptiveLayout()
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
         onRefresh = viewModel::refresh,
@@ -84,9 +88,14 @@ fun HomeScreen(
         if (state.banner.isNotEmpty()) item(key = "banner") {
             HorizontalPager(
                 state = pager,
+                pageSize = if (adaptive.widthClass == WidthClass.COMPACT) {
+                    PageSize.Fill
+                } else {
+                    PageSize.Fixed((adaptive.widthDp * adaptive.bannerCardWidthFraction).dp)
+                },
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 pageSpacing = 12.dp,
-                modifier = Modifier.fillMaxWidth().height(300.dp),
+                modifier = Modifier.fillMaxWidth().height(if (adaptive.widthClass == WidthClass.COMPACT) 300.dp else 320.dp),
             ) { page ->
                 val anime = state.banner[page]
                 Box(

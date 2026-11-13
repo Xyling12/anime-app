@@ -162,9 +162,12 @@ fun PlayerScreen(
         onDispose { componentActivity.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
-    // Полноэкранный ландшафт на время плеера; на выходе — вернуть портрет и системные панели.
-    DisposableEffect(lifecycleOwner, activity) {
+    val isTablet = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= 600
+
+    // Полноэкранный ландшафт на время плеера только на смартфонах; на планшетах сохраняем свободную ориентацию и multi-window.
+    DisposableEffect(lifecycleOwner, activity, isTablet) {
         val window = activity?.window
+        val prevOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
@@ -176,12 +179,16 @@ fun PlayerScreen(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (!isTablet) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity?.hidePlayerSystemBars()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            if (!isTablet) {
+                activity?.requestedOrientation = prevOrientation
+            }
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity?.window?.let { w ->
                 WindowCompat.getInsetsController(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
@@ -837,7 +844,8 @@ private fun NativePlayer(
             Column(
                 Modifier
                     .fillMaxHeight()
-                    .width(340.dp)
+                    .fillMaxWidth(0.9f)
+                    .widthIn(max = 380.dp)
                     .background(Color(0xF2101018))
                     .imePadding()
                     .padding(12.dp)

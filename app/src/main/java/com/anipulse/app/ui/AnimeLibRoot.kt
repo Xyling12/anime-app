@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -155,7 +156,40 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
             )
         }
 
-        Box(Modifier.fillMaxSize()) {
+        val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
+
+        Row(Modifier.fillMaxSize()) {
+            if (currentTab != null && adaptive.useNavigationRail) {
+                androidx.compose.material3.NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxHeight().topSafePadding().navigationBarsPadding(),
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    tabs.forEach { tab ->
+                        val selected = tab.route == currentTab.route
+                        androidx.compose.material3.NavigationRailItem(
+                            selected = selected,
+                            onClick = { navController.switchTab(tab.route) },
+                            icon = {
+                                Icon(
+                                    if (selected) tab.activeIcon else tab.inactiveIcon,
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            label = { Text(tab.label, maxLines = 1) },
+                            colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = Color(0x22FF4D8D),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
+                }
+            }
+        Box(Modifier.weight(1f).fillMaxSize()) {
         Scaffold(
             topBar = {
                 if (currentTab != null) {
@@ -184,7 +218,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                 }
             },
             bottomBar = {
-                if (currentTab != null) {
+                if (currentTab != null && !adaptive.useNavigationRail) {
                     androidx.compose.material3.Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 3.dp,
@@ -307,6 +341,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
         }
         }
         }
+    }
     }
     }
 }

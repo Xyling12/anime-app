@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -48,7 +50,10 @@ fun ScheduleScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    Column(Modifier.fillMaxSize().padding(top = 12.dp)) {
+    val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Column(Modifier.fillMaxHeight().widthIn(max = adaptive.readableMaxWidth).fillMaxWidth().padding(top = 12.dp)) {
         // Заголовок теперь в общей шапке (AnimeLibRoot) — здесь не дублируем.
 
         Surface(
@@ -86,6 +91,7 @@ fun ScheduleScreen(
             state.tab == 0 -> ScheduleList(viewModel, onTitleClick)
             else -> UpdatesList(viewModel, onTitleClick)
         }
+    }
     }
 }
 
