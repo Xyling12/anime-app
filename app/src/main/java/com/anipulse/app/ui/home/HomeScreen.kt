@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
@@ -23,6 +25,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -34,6 +37,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.Api
 import com.anipulse.app.data.shikimori.ShikiAnime
+import com.anipulse.app.data.shikimori.posterFor
+import com.anipulse.app.data.shikimori.posterOf
 import com.anipulse.app.data.shikimori.posterPreviewOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -77,12 +82,23 @@ fun HomeScreen(
       // Состояние пейджера вынесено наружу: внутри item оно пересоздавалось бы при уходе
       // баннера с экрана, и карусель прыгала бы на первую страницу после возврата.
       val pager = rememberPagerState(pageCount = { state.banner.size })
+      val listState = rememberLazyListState()
+      var initialBannerHandled by rememberSaveable { mutableStateOf(state.banner.isNotEmpty()) }
+      LaunchedEffect(state.banner.isNotEmpty()) {
+          if (state.banner.isNotEmpty() && !initialBannerHandled) {
+              initialBannerHandled = true
+              if (!listState.isScrollInProgress) {
+                  listState.scrollToItem(0)
+              }
+          }
+      }
       LaunchedEffect(state.banner.size) {
           if (state.banner.isEmpty()) return@LaunchedEffect
           while (true) { delay(9000); pager.animateScrollToPage((pager.currentPage + 1) % state.banner.size) }
       }
       LazyColumn(
-          Modifier.fillMaxSize().padding(top = 8.dp),
+          state = listState,
+          modifier = Modifier.fillMaxSize().padding(top = 8.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
         if (state.banner.isNotEmpty()) item(key = "banner") {
@@ -98,41 +114,116 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().height(if (adaptive.widthClass == WidthClass.COMPACT) 300.dp else 320.dp),
             ) { page ->
                 val anime = state.banner[page]
-                Box(
-                    Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable { onTitleClick(anime.id) },
-                ) {
-                    AsyncImage(
-                        model = posterPreviewOf(anime.id, anime.image), contentDescription = null,
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-                    )
-                    com.anipulse.app.ui.common.AgeRatingBadge(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                        rating = anime.rating,
-                    )
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF209090F)), startY = 80f)))
-                    Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
-                        Text("ОНГОИНГ", style = MaterialTheme.typography.labelSmall, color = Pulse, fontWeight = FontWeight.Bold)
-                        Text(
-                            anime.russian?.ifBlank { null } ?: anime.name,
-                            style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                val fullPoster = posterOf(anime.id, anime.image)
+                if (adaptive.widthClass == WidthClass.COMPACT) {
+                    Box(
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onTitleClick(anime.id) },
+                    ) {
+                        AsyncImage(
+                            model = fullPoster, contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            anime.score?.takeIf { it != "0.0" }?.let { RatingText("Shikimori ★ $it", Color(0xFFFFD66B)) }
-                            state.pulseRatings[anime.id]?.let { RatingText("AniPulse ♥ %.1f".format(it), Pulse) }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Pulse),
-                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
-                            ) {
-                                Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Смотреть")
+                        com.anipulse.app.ui.common.AgeRatingBadge(
+                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                            rating = anime.rating,
+                            showFallback = false,
+                        )
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF209090F)), startY = 80f)))
+                        Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
+                            Text("ОНГОИНГ", style = MaterialTheme.typography.labelSmall, color = Pulse, fontWeight = FontWeight.Bold)
+                            Text(
+                                anime.russian?.ifBlank { null } ?: anime.name,
+                                style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                anime.score?.takeIf { it != "0.0" }?.let { RatingText("Shikimori ★ $it", Color(0xFFFFD66B)) }
+                                state.pulseRatings[anime.id]?.let { RatingText("AniPulse ♥ %.1f".format(it), Pulse) }
                             }
-                            FilledTonalIconButton(onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp)) {
-                                Icon(Icons.Filled.Add, "В Моё")
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Pulse),
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                                ) {
+                                    Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Смотреть")
+                                }
+                                FilledTonalIconButton(onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp)) {
+                                    Icon(Icons.Filled.Add, "В Моё")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(Color(0xFF13131C))
+                            .clickable { onTitleClick(anime.id) },
+                    ) {
+                        AsyncImage(
+                            model = fullPoster, contentDescription = null,
+                            modifier = Modifier.fillMaxSize().blur(18.dp),
+                            contentScale = ContentScale.Crop,
+                            alpha = 0.35f,
+                        )
+                        Box(
+                            Modifier.fillMaxSize().background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xF009090F), Color(0xCC09090F), Color(0x7709090F)),
+                                ),
+                            ),
+                        )
+                        Row(
+                            Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight(),
+                                verticalArrangement = Arrangement.Bottom,
+                            ) {
+                                Text("ОНГОИНГ", style = MaterialTheme.typography.labelSmall, color = Pulse, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    anime.russian?.ifBlank { null } ?: anime.name,
+                                    style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    anime.score?.takeIf { it != "0.0" }?.let { RatingText("Shikimori ★ $it", Color(0xFFFFD66B)) }
+                                    state.pulseRatings[anime.id]?.let { RatingText("AniPulse ♥ %.1f".format(it), Pulse) }
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Button(
+                                        onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Pulse),
+                                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                                    ) {
+                                        Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp)); Spacer(Modifier.width(5.dp)); Text("Смотреть")
+                                    }
+                                    FilledTonalIconButton(onClick = { onTitleClick(anime.id) }, shape = RoundedCornerShape(10.dp)) {
+                                        Icon(Icons.Filled.Add, "В Моё")
+                                    }
+                                }
+                            }
+                            Box(
+                                Modifier.fillMaxHeight().aspectRatio(0.7f).clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                            ) {
+                                AsyncImage(
+                                    model = fullPoster,
+                                    contentDescription = anime.russian ?: anime.name,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                com.anipulse.app.ui.common.AgeRatingBadge(
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                    rating = anime.rating,
+                                    showFallback = false,
+                                )
                             }
                         }
                     }
@@ -225,15 +316,17 @@ fun HomeScreen(
 }
 
 @Composable private fun AnimeRail(title: String, items: List<ShikiAnime>, ratings: Map<Long, Double>, onClick: (Long) -> Unit, onAll: () -> Unit) {
+    val isTablet = rememberAdaptiveLayout().widthClass != WidthClass.COMPACT
     SectionTitle(title, onAll)
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
         items(items, key = { it.id }) { anime ->
             Column(Modifier.width(132.dp).clickable { onClick(anime.id) }) {
                 Box(Modifier.fillMaxWidth().height(184.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                    AsyncImage(posterPreviewOf(anime.id, anime.image), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(posterFor(anime.id, anime.image, isTablet), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     com.anipulse.app.ui.common.AgeRatingBadge(
                         modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
                         rating = anime.rating,
+                        showFallback = false,
                     )
                     anime.score?.takeIf { it != "0.0" }?.let {
                         RatingBadge("★ $it", Color(0xFFFFD66B), Modifier.align(Alignment.TopEnd))

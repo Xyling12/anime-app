@@ -17,21 +17,33 @@ internal data class AgeRatingBadgeInfo(
     val background: Color,
 )
 
-/** Сопоставляет возрастной рейтинг Shikimori (`g`/`pg`/`pg_13`/`r`/`r_plus`/`rx`) с маркировкой. */
-internal fun resolveAgeRatingBadge(rating: String?): AgeRatingBadgeInfo =
+/** Сопоставляет известный возрастной рейтинг Shikimori (`g`/`pg`/`pg_13`/`r`/`r_plus`/`rx`) с маркировкой. */
+internal fun resolveKnownAgeRatingBadge(rating: String?): AgeRatingBadgeInfo? =
     when (rating?.trim()?.lowercase(Locale.ROOT)) {
         "g" -> AgeRatingBadgeInfo("0+", Color(0xE62E7D32))
         "pg" -> AgeRatingBadgeInfo("6+", Color(0xE60277BD))
         "pg_13" -> AgeRatingBadgeInfo("12+", Color(0xE6455A64))
         "r" -> AgeRatingBadgeInfo("16+", Color(0xE6EF6C00))
         "r_plus", "rx" -> AgeRatingBadgeInfo("18+", Color(0xE6B71C1C))
-        else -> AgeRatingBadgeInfo("18+", Color(0xE6B71C1C))
+        else -> null
     }
 
-/** Возрастной бейдж тайтла на основании рейтинга Shikimori (с безопасным фоллбэком 18+). */
+/** Сопоставляет возрастной рейтинг Shikimori с обязательным безопасным фоллбэком `18+`. */
+internal fun resolveAgeRatingBadge(rating: String?): AgeRatingBadgeInfo =
+    resolveKnownAgeRatingBadge(rating) ?: AgeRatingBadgeInfo("18+", Color(0xE6B71C1C))
+
+/** Возвращает бейдж или null, когда рейтинг не указан и фоллбэк отключён (для списочных карточек). */
+internal fun resolveAgeRatingBadgeOrNull(rating: String?, showFallback: Boolean): AgeRatingBadgeInfo? =
+    resolveKnownAgeRatingBadge(rating) ?: if (showFallback) AgeRatingBadgeInfo("18+", Color(0xE6B71C1C)) else null
+
+/** Возрастной бейдж тайтла на основании рейтинга Shikimori (для карточек списков можно отключить фоллбэк). */
 @Composable
-fun AgeRatingBadge(modifier: Modifier = Modifier, rating: String? = null) {
-    val info = resolveAgeRatingBadge(rating)
+fun AgeRatingBadge(
+    modifier: Modifier = Modifier,
+    rating: String? = null,
+    showFallback: Boolean = true,
+) {
+    val info = resolveAgeRatingBadgeOrNull(rating, showFallback) ?: return
     Text(
         text = info.label,
         modifier = modifier

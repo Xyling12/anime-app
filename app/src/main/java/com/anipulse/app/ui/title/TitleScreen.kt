@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -75,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.anipulse.app.data.shikimori.posterFor
 import com.anipulse.app.data.shikimori.posterOf
 import com.anipulse.app.data.shikimori.posterPreviewOf
 
@@ -215,8 +218,22 @@ fun TitleScreen(
             val d = state.details
             val displayTitle = d?.russian?.ifBlank { null } ?: d?.name
             val adaptive = com.anipulse.app.ui.common.rememberAdaptiveLayout()
-            val contentWidth = Modifier.fillMaxWidth().widthIn(max = 880.dp)
-            val heroHeight = if (adaptive.widthClass == com.anipulse.app.ui.common.WidthClass.COMPACT) 340.dp else 400.dp
+            val isTablet = adaptive.widthClass != com.anipulse.app.ui.common.WidthClass.COMPACT
+            val contentWidth = Modifier.widthIn(max = 920.dp).fillMaxWidth()
+            val heroHeight = if (isTablet) 380.dp else 340.dp
+            val heroMeta = d?.let {
+                listOfNotNull(
+                    it.score?.takeIf { s -> s != "0.0" }?.let { s -> "Shikimori ★ $s" },
+                    it.airedOn?.take(4),
+                    it.episodes?.let { ep -> "Эп: $ep" },
+                    it.kind?.uppercase(),
+                ).joinToString(" • ")
+            }.orEmpty()
+            val posterRequest = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                .data(posterOf(animeId, d?.image))
+                .memoryCacheKey("poster_$animeId")
+                .placeholderMemoryCacheKey("poster_prev_$animeId")
+                .build()
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize().imePadding(),
@@ -224,27 +241,109 @@ fun TitleScreen(
             ) {
                 item {
                     Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                        AsyncImage(
-                            model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                .data(posterOf(animeId, d?.image))
-                                .memoryCacheKey("poster_$animeId")
-                                .placeholderMemoryCacheKey("poster_prev_$animeId")
-                                .build(),
-                            contentDescription = displayTitle,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, MaterialTheme.colorScheme.background),
-                                    startY = 300f,
-                                )
+                        if (isTablet) {
+                            AsyncImage(
+                                model = posterRequest,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize().blur(22.dp),
+                                contentScale = ContentScale.Crop,
+                                alpha = 0.34f,
                             )
-                        )
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color(0x9909090F),
+                                            Color(0xCC09090F),
+                                            MaterialTheme.colorScheme.background,
+                                        ),
+                                    ),
+                                ),
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .then(contentWidth)
+                                    .padding(top = 72.dp, start = 20.dp, end = 20.dp, bottom = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .height(276.dp)
+                                        .aspectRatio(0.7f)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                ) {
+                                    AsyncImage(
+                                        model = posterRequest,
+                                        contentDescription = displayTitle,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                    if (d != null) {
+                                        com.anipulse.app.ui.common.AgeRatingBadge(
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                            rating = d.rating,
+                                        )
+                                    }
+                                }
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (d != null) {
+                                        Text(
+                                            text = displayTitle ?: "",
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (heroMeta.isNotEmpty()) {
+                                            Text(
+                                                text = heroMeta,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            AsyncImage(
+                                model = posterRequest,
+                                contentDescription = displayTitle,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, MaterialTheme.colorScheme.background),
+                                        startY = 300f,
+                                    ),
+                                ),
+                            )
+                            if (d != null) {
+                                com.anipulse.app.ui.common.AgeRatingBadge(
+                                    modifier = Modifier.align(Alignment.TopStart).padding(top = 92.dp, start = 12.dp),
+                                    rating = d.rating,
+                                )
+                                Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                                    Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        heroMeta,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
                         IconButton(
                             onClick = onBack,
                             modifier = Modifier
+                                .align(Alignment.TopStart)
                                 .padding(top = 36.dp, start = 8.dp)
                                 .clip(CircleShape)
                                 .background(Color(0x66000000)),
@@ -252,10 +351,6 @@ fun TitleScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад", tint = Color.White)
                         }
                         if (d != null) {
-                            com.anipulse.app.ui.common.AgeRatingBadge(
-                                modifier = Modifier.align(Alignment.TopStart).padding(top = 92.dp, start = 12.dp),
-                                rating = d.rating,
-                            )
                             if (d.status == "ongoing") {
                                 IconButton(
                                     onClick = viewModel::toggleEpisodeNotification,
@@ -280,19 +375,6 @@ fun TitleScreen(
                                     if (state.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                                     contentDescription = if (state.isFavorite) "Убрать из «Моё»" else "В «Моё»",
                                     tint = if (state.isFavorite) Color(0xFFEF5350) else Color.White,
-                                )
-                            }
-                            Column(Modifier.align(Alignment.BottomStart).widthIn(max = 880.dp).padding(16.dp)) {
-                                Text(displayTitle ?: "", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text(
-                                    listOfNotNull(
-                                        d.score?.takeIf { it != "0.0" }?.let { "Shikimori ★ $it" },
-                                        d.airedOn?.take(4),
-                                        d.episodes?.let { "Эп: $it" },
-                                        d.kind?.uppercase(),
-                                    ).joinToString(" • "),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -544,7 +626,7 @@ fun TitleScreen(
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Color(0xFF15151F)),
                                     ) {
-                                        val url = posterPreviewOf(a.id, a.image)
+                                        val url = posterFor(a.id, a.image, isTablet)
                                         AsyncImage(
                                             model = coil.request.ImageRequest.Builder(ctx)
                                                 .data(url)

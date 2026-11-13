@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.anipulse.app.data.shikimori.ShikiAnime
+import com.anipulse.app.data.shikimori.posterFor
 import com.anipulse.app.data.shikimori.posterPreviewOf
 import kotlinx.coroutines.flow.collectLatest
 
@@ -302,10 +303,12 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             val sharedTransitionScope = com.anipulse.app.ui.LocalSharedTransitionScope.current
             val animatedVisibilityScope = com.anipulse.app.ui.LocalAnimatedVisibilityScope.current
             
+            val preferFull = com.anipulse.app.ui.common.rememberAdaptiveLayout().widthClass != com.anipulse.app.ui.common.WidthClass.COMPACT
             AsyncImage(
                 model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(posterPreviewOf(anime.id, anime.image))
-                    .memoryCacheKey("poster_prev_${anime.id}")
+                    .data(posterFor(anime.id, anime.image, preferFull))
+                    .memoryCacheKey(if (preferFull) "poster_${anime.id}" else "poster_prev_${anime.id}")
+                    .placeholderMemoryCacheKey("poster_prev_${anime.id}")
                     .build(),
                 contentDescription = anime.russian ?: anime.name,
                 modifier = Modifier.fillMaxSize(),
@@ -314,10 +317,11 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             com.anipulse.app.ui.common.AgeRatingBadge(
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
                 rating = anime.rating,
+                showFallback = false,
             )
             anime.score?.takeIf { it != "0.0" }?.let { score ->
                 Text(
-                    text = "Shiki ★ $score",
+                    text = "★ $score",
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
@@ -326,20 +330,6 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFFFD54F),
-                )
-            }
-            // Оценка AniPulse (свой рейтинг пользователей) — слева сверху
-            pulseRating?.let { pr ->
-                Text(
-                    text = "AniPulse ♥ %.1f".format(pr),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFFF4D8D),
                 )
             }
         }
@@ -353,8 +343,8 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
             overflow = TextOverflow.Ellipsis,
         )
         Row(Modifier.padding(horizontal = 10.dp, vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            anime.score?.takeIf { it != "0.0" }?.let { Text("Shiki ★ $it", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F), fontWeight = FontWeight.SemiBold) }
-            pulseRating?.let { Text("AniPulse ♥ %.1f".format(it), style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF4D8D), fontWeight = FontWeight.SemiBold) }
+            anime.score?.takeIf { it != "0.0" }?.let { Text("★ $it", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F), fontWeight = FontWeight.SemiBold, maxLines = 1) }
+            pulseRating?.let { Text("♥ %.1f".format(it), style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF4D8D), fontWeight = FontWeight.SemiBold, maxLines = 1) }
         }
     }
     }

@@ -88,6 +88,10 @@ fun posterOf(id: Long, image: ShikiImage?): String =
 fun posterPreviewOf(id: Long, image: ShikiImage?): String =
     image.previewUrl() ?: (com.anipulse.app.data.Api.GATEWAY + "poster/$id")
 
+/** Подбирает оригинал постера на больших экранах/баннерах и лёгкое превью для компактных карточек. */
+fun posterFor(id: Long, image: ShikiImage?, preferFull: Boolean): String =
+    if (preferFull) posterOf(id, image) else posterPreviewOf(id, image)
+
 /**
  * Связанный тайтл из `/api/animes/{id}/related`.
  * Anime может быть null (тогда это манга) — пропускаем.

@@ -337,6 +337,9 @@ private fun ProfileRedesign(
             LeaderboardDialog(state, onDismiss = { viewModel.toggleLeaderboard(false) })
         }
 
+        // Блок добровольной поддержки проекта
+        com.anipulse.app.ui.common.DonateSupportCard()
+
         // Блок сообщества Telegram
         Surface(
             modifier = Modifier.fillMaxWidth(),

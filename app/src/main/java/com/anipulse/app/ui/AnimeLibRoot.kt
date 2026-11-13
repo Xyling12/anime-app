@@ -199,6 +199,7 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                     ) {
                         Row(
                             Modifier
+                                .fillMaxWidth()
                                 .topSafePadding()
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
@@ -213,6 +214,9 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                         )
+                        if (currentTab.route != "profile") {
+                            com.anipulse.app.ui.common.DonateHeaderPill()
+                        }
                     }
                     }
                 }
