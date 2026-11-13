@@ -1036,10 +1036,26 @@ function sanitizeSyncFavorite(value) {
     status, updatedAt, deleted: value.deleted === true,
   };
 }
+function sanitizeHiddenContinue(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  let count = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    if (count >= 5000) break;
+    const animeId = Math.trunc(Number(k));
+    if (!Number.isSafeInteger(animeId) || animeId < 1) continue;
+    const ts = Math.min(Date.now() + 5 * 60 * 1000, Math.max(1, Math.trunc(Number(v) || 0)));
+    if (!Number.isFinite(ts) || ts < 1) continue;
+    out[String(animeId)] = ts;
+    count++;
+  }
+  return out;
+}
 function syncResponse(entry) {
   return {
     progress: Object.values(entry.progress || {}).slice(-5000),
     favorites: Object.values(entry.favorites || {}).slice(-2000),
+    hiddenContinue: entry.hiddenContinue || {},
   };
 }
 async function handleSync(req, res) {
@@ -1047,8 +1063,9 @@ async function handleSync(req, res) {
   if (!user) return jsonRes(res, 401, { error: 'auth' });
   const readEntry = (store) => {
     store.users = store.users || {};
-    const e = store.users[user.id] || { progress: {}, favorites: {} };
+    const e = store.users[user.id] || { progress: {}, favorites: {}, hiddenContinue: {} };
     e.progress = e.progress || {}; e.favorites = e.favorites || {};
+    e.hiddenContinue = e.hiddenContinue || {};
     return e;
   };
   if (req.method === 'GET') return jsonRes(res, 200, syncResponse(readEntry(loadJson(SYNC_FILE, { users: {} }))));
@@ -1069,8 +1086,26 @@ async function handleSync(req, res) {
     const key = String(item.animeId), old = entry.favorites[key];
     if (!old || Number(item.updatedAt) >= Number(old.updatedAt || 0)) entry.favorites[key] = item;
   }
+  const hiddenIncoming = sanitizeHiddenContinue(body && body.hiddenContinue);
+  for (const [k, ts] of Object.entries(hiddenIncoming)) {
+    const prev = Number(entry.hiddenContinue[k] || 0);
+    if (ts >= prev) entry.hiddenContinue[k] = ts;
+  }
   all.users[user.id] = entry;
   saveJson(SYNC_FILE, all);
+  // Держим stats в users.json синхронными с истиной из sync.json.
+  const computed = calculateUserStats(user.id, entry);
+  const usersDb = loadUsers();
+  const u = usersDb.users.find(x => x.id === user.id);
+  if (u) {
+    u.stats = {
+      watchedEpisodes: computed.episodesWatched,
+      watchMinutes: computed.watchMinutes,
+      startedTitles: computed.startedTitles,
+      favoritesCount: computed.favoritesCount,
+    };
+    saveUsers(usersDb);
+  }
   leaderboardCache = { exp: 0, data: null };
   return jsonRes(res, 200, syncResponse(entry));
 }
@@ -1091,8 +1126,10 @@ function calculateUserStats(userId, syncEntry) {
 
   let watchedEpisodesCount = 0;
   let totalWatchMs = 0;
+  const startedSet = new Set();
   for (const p of progressItems) {
     if (p && !p.deleted) {
+      startedSet.add(p.animeId);
       if (p.watched === true || (p.durationMs > 0 && p.positionMs >= 0.8 * p.durationMs)) {
         watchedEpisodesCount++;
       }
@@ -1103,9 +1140,13 @@ function calculateUserStats(userId, syncEntry) {
   }
 
   let completedTitlesCount = 0;
+  let favoritesCount = 0;
   for (const f of favoriteItems) {
-    if (f && !f.deleted && f.status === 'completed') {
-      completedTitlesCount++;
+    if (f && !f.deleted) {
+      favoritesCount++;
+      if (f.status === 'completed') {
+        completedTitlesCount++;
+      }
     }
   }
 
@@ -1117,7 +1158,9 @@ function calculateUserStats(userId, syncEntry) {
     episodesWatched: watchedEpisodesCount,
     watchMinutes,
     watchHours,
+    startedTitles: startedSet.size,
     completedTitles: completedTitlesCount,
+    favoritesCount,
     level: levelInfo.level,
     levelTitle: levelInfo.title,
     badge: levelInfo.badge,
@@ -1132,7 +1175,7 @@ function generateLeaderboard() {
   const usersDb = loadUsers().users || [];
   const userMap = new Map();
   for (const u of usersDb) {
-    if (u && u.id && !u.banned) {
+    if (u && u.id && !isBanned(u) && !u.banned) {
       userMap.set(String(u.id), u);
     }
   }
@@ -1143,11 +1186,13 @@ function generateLeaderboard() {
     if (!user) continue;
     const stats = calculateUserStats(user.id, entry);
     if (stats.episodesWatched > 0 || stats.watchMinutes > 0) {
+      const av = avatarOf(user);
       list.push({
         userId: user.id,
         nick: user.nick,
-        avatar: user.avatar !== undefined ? user.avatar : 0,
-        avatarCustom: avatarOf(user) === -1,
+        avatar: av,
+        avatarRev: av === -1 ? (user.avatarRev || 0) : 0,
+        avatarCustom: av === -1,
         episodesWatched: stats.episodesWatched,
         watchHours: stats.watchHours,
         watchMinutes: stats.watchMinutes,
@@ -1194,12 +1239,14 @@ async function handleLeaderboard(req, res) {
     } else {
       const syncDb = loadJson(SYNC_FILE, { users: {} });
       const stats = calculateUserStats(currentUser.id, syncDb.users && syncDb.users[currentUser.id]);
+      const av = avatarOf(currentUser);
       myRank = {
         rank: allRanked.length + 1,
         userId: currentUser.id,
         nick: currentUser.nick,
-        avatar: currentUser.avatar !== undefined ? currentUser.avatar : 0,
-        avatarCustom: avatarOf(currentUser) === -1,
+        avatar: av,
+        avatarRev: av === -1 ? (currentUser.avatarRev || 0) : 0,
+        avatarCustom: av === -1,
         episodesWatched: stats.episodesWatched,
         watchHours: stats.watchHours,
         watchMinutes: stats.watchMinutes,
@@ -1227,12 +1274,14 @@ async function handleMyStats(req, res) {
   const allRanked = getLeaderboardData();
   const rankEntry = allRanked.find(x => x.userId === currentUser.id);
   const rank = rankEntry ? rankEntry.rank : (allRanked.length + 1);
+  const av = avatarOf(currentUser);
 
   return jsonRes(res, 200, {
     userId: currentUser.id,
     nick: currentUser.nick,
-    avatar: currentUser.avatar !== undefined ? currentUser.avatar : 0,
-    avatarCustom: avatarOf(currentUser) === -1,
+    avatar: av,
+    avatarRev: av === -1 ? (currentUser.avatarRev || 0) : 0,
+    avatarCustom: av === -1,
     rank,
     totalParticipants: allRanked.length,
     ...stats,
@@ -1532,19 +1581,39 @@ function isOnline(u) { return (u.lastSeen || 0) > Date.now() - ONLINE_MS; }
 function friendsDb() { return loadJson(FRIENDS_FILE, {}); }
 function friendsOf(db, id) { return db[id] || (db[id] = { friends: [], incoming: [] }); }
 
-function publicUser(u, { showPresence = false } = {}) {
+function syncStatsForUser(userId, fallbackStats, syncDb = null) {
+  const store = syncDb || loadJson(SYNC_FILE, { users: {} });
+  const entry = store.users && store.users[userId];
+  const hasSyncRecords = !!(entry && (
+    Object.keys(entry.progress || {}).length > 0
+    || Object.keys(entry.favorites || {}).length > 0
+  ));
+  if (!hasSyncRecords) return fallbackStats || null;
+  const s = calculateUserStats(userId, entry);
+  return {
+    watchedEpisodes: s.episodesWatched,
+    watchMinutes: s.watchMinutes,
+    startedTitles: s.startedTitles,
+    favoritesCount: s.favoritesCount,
+  };
+}
+
+function publicUser(u, { showPresence = false, syncDb = null } = {}) {
   const banned = isBanned(u);
   return {
     userId: u.id, nick: u.nick, avatar: banned ? 0 : avatarOf(u),
     avatarRev: banned ? 0 : (u.avatarRev || 0), bio: banned ? '' : (u.bio || ''),
     createdAt: u.createdAt || null, lastSeen: null, online: showPresence && !banned && isOnline(u),
-    favoriteGenre: banned ? null : (u.favoriteGenre || null), stats: u.stats || null,
+    favoriteGenre: banned ? null : (u.favoriteGenre || null),
+    stats: banned ? null : syncStatsForUser(u.id, u.stats, syncDb),
     restricted: banned,
   };
 }
 
 async function handleUserCard(req, res) {
-  const nick = decodeURIComponent(String((req.url.match(/[?&]nick=([^&]+)/) || [])[1] || ''));
+  let nick = '';
+  try { nick = decodeURIComponent(String((req.url.match(/[?&]nick=([^&]+)/) || [])[1] || '')); } catch (_) { nick = ''; }
+  if (!nick) return jsonRes(res, 404, { error: 'Пользователь не найден' });
   const db = loadUsers();
   const u = db.users.find(x => x.nick && x.nick.toLowerCase() === nick.toLowerCase());
   if (!u) return jsonRes(res, 404, { error: 'Пользователь не найден' });
@@ -1570,7 +1639,8 @@ async function handleUserCard(req, res) {
     const fdb = friendsDb();
     areFriends = friendsOf(fdb, me.id).friends.includes(u.id);
   }
-  const out = publicUser(u, { showPresence: !!me && (me.id === u.id || areFriends) });
+  const syncDb = loadJson(SYNC_FILE, { users: {} });
+  const out = publicUser(u, { showPresence: !!me && (me.id === u.id || areFriends), syncDb });
   // активность в соцчасти
   const comments = loadJson(COMMENTS_FILE, {});
   out.commentsCount = Object.values(comments).reduce((a, list) => a + list.filter(c => c.userId === u.id).length, 0);
@@ -1602,12 +1672,13 @@ async function handleProfileUpdate(req, res) {
   if (b && typeof b.bio === 'string') u.bio = sanitizeText(b.bio, 200);
   if (b && typeof b.favoriteGenre === 'string') u.favoriteGenre = sanitizeText(b.favoriteGenre, 40);
   if (b && b.stats && typeof b.stats === 'object') {
-    u.stats = {
+    const clientStats = {
       watchedEpisodes: Math.min(1_000_000, Math.max(0, Math.trunc(Number(b.stats.watchedEpisodes) || 0))),
       watchMinutes: Math.min(10_000_000, Math.max(0, Math.trunc(Number(b.stats.watchMinutes) || 0))),
       startedTitles: Math.min(100_000, Math.max(0, Math.trunc(Number(b.stats.startedTitles) || 0))),
       favoritesCount: Math.min(100_000, Math.max(0, Math.trunc(Number(b.stats.favoritesCount) || 0))),
     };
+    u.stats = syncStatsForUser(user.id, clientStats);
   }
   saveUsers(db);
   return jsonRes(res, 200, { ok: true });
@@ -2495,7 +2566,7 @@ async function handleOAuthVk(req, res, isCallback) {
 
 // ===== Публичные юридические страницы =====
 const LEGAL_CONTACT = 'marc.1010@yandex.ru';
-const LEGAL_UPDATED = '7 августа 2026';
+const LEGAL_UPDATED = '13 ноября 2026';
 const LEGAL_FILE = dataPath('legal.json');
 function legalCfg() {
   return loadJson(LEGAL_FILE, {
@@ -2508,6 +2579,20 @@ function legalAddressText(cfg) {
   const address = String(cfg.operatorAddress || '').trim();
   if (!address || address === 'НЕ ЗАПОЛНЕНО') return '';
   return ` Адрес: ${address}.${cfg.operatorInn ? ` ИНН: ${cfg.operatorInn}.` : ''}`;
+}
+
+function handleLegalInfo(res) {
+  const cfg = legalCfg();
+  const address = String(cfg.operatorAddress || '').trim();
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return jsonRes(res, 200, {
+    operatorName: String(cfg.operatorName || 'Ившин Максим Сергеевич').trim(),
+    operatorAddress: !address || address === 'НЕ ЗАПОЛНЕНО' ? '' : address,
+    operatorInn: String(cfg.operatorInn || '').trim(),
+    serverCountry: String(cfg.serverCountry || 'Российская Федерация').trim(),
+    contact: String(cfg.contact || LEGAL_CONTACT).trim() || LEGAL_CONTACT,
+    updated: LEGAL_UPDATED,
+  });
 }
 
 function legalPage(title, bodyHtml) {
@@ -2541,6 +2626,7 @@ function handlePrivacyPage(res) {
 <p>По желанию: аватар (готовый пресет или загруженное и обрезанное пользователем изображение), короткое «о себе», любимый жанр.</p>
 <p>Для вошедших пользователей список «Моё», статусы тайтлов и прогресс серий (номер серии, позиция, длительность и время обновления) синхронизируются с сервером, чтобы продолжать просмотр на сайте и других устройствах. Эти данные доступны только владельцу аккаунта, хранятся до их удаления или удаления аккаунта и не передаются поставщикам каталога или видео. Токен входа и настройки приложения хранятся отдельно в зашифрованном хранилище Android.</p>
 <p>Контент, который вы создаёте сами: комментарии, оценки тайтлов и жалобы — хранится на нашем сервере для публикации, учёта оценки и модерации. Встроенные чат, личные сообщения и друзья отключены.</p>
+<p>Публичная витрина профиля и таблица лидеров: если у аккаунта есть просмотренные серии или оценки, его ник, выбранный аватар, уровень, любимый жанр, короткое описание «о себе» и агрегированная статистика просмотров (количество серий, часы просмотра, оценка активности) могут отображаться в публичном профиле <code>/u/[ник]</code> и в «Таблице лидеров» <code>/leaderboard</code> без раскрытия email, пароля, токенов и истории конкретных видео. Адрес электронной почты, статус онлайн и список продолжения просмотра посторонним не показываются.</p>
 <p>Автоматически: IP-адрес (только для защиты от злоупотреблений — ограничение частоты запросов, не хранится долговременно), при добровольной отправке баг-репорта — модель устройства и версия Android.</p>
 <p>Для псевдонимизированной технической статистики использования создаётся случайный идентификатор установки. После входа он может быть связан с ID аккаунта. Мы учитываем первый запуск, версию приложения, активность приложения или сайта, примерную длительность активной сессии и факт скачивания APK с нашего сайта. Идентификатор не является рекламным идентификатором или отпечатком устройства; постоянный сбор в фоне не выполняется, IP-адрес в статистике не сохраняется. При удалении аккаунта связь идентификатора с ID аккаунта удаляется.</p>
 <h2>Как мы используем данные</h2>
@@ -2591,7 +2677,7 @@ function handleCommunityRulesPage(res) {
 
 function handleConsentPage(res) {
   const cfg = legalCfg(), contact = cfg.contact || LEGAL_CONTACT;
-  sendLegalPage(res, 'Согласие на обработку персональных данных', `<p>Я свободно, своей волей и в своём интересе даю ${cfg.operatorName}${legalAddressText(cfg)}, согласие на автоматизированную обработку моих данных: ника, email, ID аккаунта, аватара, профиля, оценок, списков, прогресса просмотра, псевдонимизированной технической статистики, комментариев, жалоб и технических данных.</p><p>Цели: создание и защита аккаунта, синхронизация, публикация комментариев, учёт оценок, модерация, уведомления и техническая поддержка. Действия: сбор, запись, хранение, уточнение, использование, передача указанным в политике обработчикам, блокирование, удаление и уничтожение.</p><p>При отдельном выборе источника Kodik пользовательское устройство может передать IP-адрес и стандартные технические сведения сетевого запроса CDN, расположенному в Нидерландах, исключительно для доставки выбранного видеопотока. Ник, email, комментарии и токен AniPulse не передаются.</p><p>Согласие действует до удаления аккаунта или отзыва согласия. Отозвать его можно письмом на <a href="mailto:${contact}">${contact}</a> или удалением аккаунта. <a href="/privacy">Полная политика</a>.</p>`);
+  sendLegalPage(res, 'Согласие на обработку персональных данных', `<p>Я свободно, своей волей и в своём интересе даю ${cfg.operatorName}${legalAddressText(cfg)}, согласие на автоматизированную обработку моих данных: ника, email, ID аккаунта, аватара, профиля, оценок, списков, прогресса просмотра, псевдонимизированной технической статистики, комментариев, жалоб и технических данных.</p><p>Цели: создание и защита аккаунта, синхронизация, публикация комментариев, учёт оценок, формирование публичного рейтинга пользователей (таблицы лидеров и публичной карточки профиля по нику без раскрытия email), модерация, уведомления и техническая поддержка. Действия: сбор, запись, хранение, уточнение, использование, передача указанным в политике обработчикам, блокирование, удаление и уничтожение.</p><p>При отдельном выборе источника Kodik пользовательское устройство может передать IP-адрес и стандартные технические сведения сетевого запроса CDN, расположенному в Нидерландах, исключительно для доставки выбранного видеопотока. Ник, email, комментарии и токен AniPulse не передаются.</p><p>Согласие действует до удаления аккаунта или отзыва согласия. Отозвать его можно письмом на <a href="mailto:${contact}">${contact}</a> или удалением аккаунта. <a href="/privacy">Полная политика</a>.</p>`);
 }
 
 function handleRecommendationsRulesPage(res) {
@@ -2660,7 +2746,8 @@ async function route(req, res) {
   if (req.url === '/community-rules') return handleCommunityRulesPage(res);
   if (req.url === '/personal-data-consent') return handleConsentPage(res);
   if (req.url === '/recommendations-rules') return handleRecommendationsRulesPage(res);
-  if (req.url === '/for-right-holders') return handleRightHoldersPage(res);
+  if (req.url === '/for-right-holders' || req.url === '/rightholders') return handleRightHoldersPage(res);
+  if (req.url === '/alapi/legal') return handleLegalInfo(res);
   if (req.url.startsWith('/auth/android-callback')) {
     const html = legalPage('Возврат в приложение', '<h2>Вернитесь в AniPulse</h2><p>Если приложение не открылось автоматически, установите актуальную версию приложения и повторите вход.</p>');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });

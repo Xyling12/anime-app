@@ -1,5 +1,7 @@
 package com.anipulse.app.data
 
+import com.anipulse.app.data.db.ContinueHidden
+import com.anipulse.app.data.db.ContinueHiddenDao
 import com.anipulse.app.data.db.EpisodeProgress
 import com.anipulse.app.data.db.Favorite
 import com.anipulse.app.data.db.FavoriteDao
@@ -15,6 +17,7 @@ class SyncRepository @Inject constructor(
     private val settings: SettingsStore,
     private val progressDao: ProgressDao,
     private val favoriteDao: FavoriteDao,
+    private val continueHiddenDao: ContinueHiddenDao,
 ) {
     private val mutex = Mutex()
 
@@ -23,6 +26,7 @@ class SyncRepository @Inject constructor(
         val payload = SyncPayload(
             progress = progressDao.allOnce().map(EpisodeProgress::toSynced),
             favorites = favoriteDao.allOnce().map(Favorite::toSynced),
+            hiddenContinue = continueHiddenDao.allOnce().associate { it.animeId.toString() to it.hiddenAt },
         )
         apply(gateway.mergeSyncState(bearer, payload))
     }
@@ -30,6 +34,11 @@ class SyncRepository @Inject constructor(
     suspend fun pushProgress(value: EpisodeProgress) = mutex.withLock {
         val bearer = settings.authToken?.let { "Bearer $it" } ?: return@withLock
         apply(gateway.mergeSyncState(bearer, SyncPayload(progress = listOf(value.toSynced()))))
+    }
+
+    suspend fun pushHiddenContinue(animeId: Long, hiddenAt: Long) = mutex.withLock {
+        val bearer = settings.authToken?.let { "Bearer $it" } ?: return@withLock
+        apply(gateway.mergeSyncState(bearer, SyncPayload(hiddenContinue = mapOf(animeId.toString() to hiddenAt))))
     }
 
     suspend fun pushFavorite(value: Favorite) = mutex.withLock {
@@ -48,9 +57,21 @@ class SyncRepository @Inject constructor(
     }
 
     private suspend fun apply(payload: SyncPayload) {
-        payload.progress.forEach { progressDao.upsert(it.toEntity()) }
+        payload.progress.forEach {
+            if (it.deleted) progressDao.delete(it.animeId, it.episode) else progressDao.upsert(it.toEntity())
+        }
         payload.favorites.forEach {
             if (it.deleted) favoriteDao.delete(it.animeId) else favoriteDao.upsert(it.toEntity())
+        }
+        if (payload.hiddenContinue.isNotEmpty()) {
+            val existing = continueHiddenDao.allOnce().associate { it.animeId to it.hiddenAt }
+            payload.hiddenContinue.forEach { (idStr, hiddenAt) ->
+                val animeId = idStr.toLongOrNull() ?: return@forEach
+                val prev = existing[animeId]
+                if (prev == null || hiddenAt > prev) {
+                    continueHiddenDao.hide(ContinueHidden(animeId, hiddenAt))
+                }
+            }
         }
     }
 }

@@ -293,6 +293,7 @@ data class SyncedProgress(
     val posterId: Long = 0,
     val totalEpisodes: Int = 0,
     val updatedAt: Long = 0,
+    val deleted: Boolean = false,
 )
 
 @Serializable
@@ -309,6 +310,7 @@ data class SyncedFavorite(
 data class SyncPayload(
     val progress: List<SyncedProgress> = emptyList(),
     val favorites: List<SyncedFavorite> = emptyList(),
+    val hiddenContinue: Map<String, Long> = emptyMap(),
 )
 
 @Serializable

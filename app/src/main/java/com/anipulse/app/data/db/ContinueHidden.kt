@@ -32,4 +32,7 @@ interface ContinueHiddenDao {
 
     @Query("SELECT * FROM continue_hidden")
     fun all(): Flow<List<ContinueHidden>>
+
+    @Query("SELECT * FROM continue_hidden")
+    suspend fun allOnce(): List<ContinueHidden>
 }

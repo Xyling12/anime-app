@@ -63,7 +63,9 @@ class HomeViewModel @Inject constructor(
     /** «Скрыть из подбора» на карточке ленты. */
     fun hideFromContinue(animeId: Long) {
         viewModelScope.launch {
-            continueHiddenDao.hide(ContinueHidden(animeId, System.currentTimeMillis()))
+            val ts = System.currentTimeMillis()
+            continueHiddenDao.hide(ContinueHidden(animeId, ts))
+            runCatching { syncRepository.pushHiddenContinue(animeId, ts) }
         }
     }
 

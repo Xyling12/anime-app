@@ -66,3 +66,31 @@ test('sync requires authentication and rejects malformed identifiers', async () 
   assert.equal(result.json.favorites.length, 1);
   assert.equal(result.json.favorites[0].animeId, 42);
 });
+
+test('hiddenContinue merges timestamps, /alapi/user uses authoritative sync stats, and /alapi/legal hides unset address', async () => {
+  const now = Date.now();
+  const synced = await api('/alapi/sync', 'POST', {
+    progress: [{ animeId: 99, episode: 2, positionMs: 900000, durationMs: 1000000, watched: true, updatedAt: now }],
+    hiddenContinue: { 99: now + 1000 },
+  });
+  assert.equal(synced.status, 200);
+  assert.equal(synced.json.hiddenContinue['99'], now + 1000);
+
+  // Старый профиль не должен затереть синхронизированные счётчики.
+  const staleProfile = await api('/alapi/profile', 'POST', {
+    stats: { watchedEpisodes: 0, watchMinutes: 0, startedTitles: 0, favoritesCount: 0 },
+  });
+  assert.equal(staleProfile.status, 200);
+
+  const card = await api('/alapi/user?nick=SyncUser');
+  assert.equal(card.status, 200);
+  assert.equal(card.json.stats.watchedEpisodes, 1);
+  assert.equal(card.json.stats.startedTitles, 2);
+
+  const savedToken = token; token = null;
+  const legalRes = await api('/alapi/legal');
+  token = savedToken;
+  assert.equal(legalRes.status, 200);
+  assert.equal(legalRes.json.operatorAddress, '');
+  assert.equal(legalRes.json.contact, 'marc.1010@yandex.ru');
+});

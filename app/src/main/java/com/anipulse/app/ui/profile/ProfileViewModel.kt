@@ -163,6 +163,8 @@ class ProfileViewModel @Inject constructor(
                 settings.authEmail = resp.email
                 runCatching { syncRepository.syncAll() }
                 refresh()
+                syncStatsToServer()
+                refreshStatsAndLeaderboard()
                 _state.update { it.copy(nick = resp.nick, email = resp.email, authBusy = false, authError = null) }
                 runCatching { gateway.me("Bearer ${resp.token}") }.onSuccess { me ->
                     val resolvedNick = me.nick ?: resp.nick
@@ -313,6 +315,10 @@ class ProfileViewModel @Inject constructor(
                                     avatarRev = me.avatarRev,
                                 )
                             }
+                            runCatching { syncRepository.syncAll() }
+                            refresh()
+                            syncStatsToServer()
+                            refreshStatsAndLeaderboard()
                         }
                     }
                 }

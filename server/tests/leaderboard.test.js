@@ -42,10 +42,12 @@ async function api(route, method = 'GET', body, token) {
 
 before(async () => {
   fs.writeFileSync(path.join(data, 'users.json'), JSON.stringify({
-    seq: 2,
+    seq: 4,
     users: [
       { id: 1, nick: 'TopWatcher', email: 'top@test.local', pass: hash('Pass-1'), emailVerified: true, avatar: 2 },
       { id: 2, nick: 'CasualFan', email: 'fan@test.local', pass: hash('Pass-2'), emailVerified: true, avatar: 5 },
+      { id: 3, nick: 'CustomUser', email: 'custom@test.local', pass: hash('Pass-3'), emailVerified: true, avatar: 2, customAvatar: true, customAvatarMime: 'image/jpeg', avatarRev: 3 },
+      { id: 4, nick: 'BannedUser', email: 'banned@test.local', pass: hash('Pass-4'), emailVerified: true, avatar: 1, bannedUntil: Date.now() + 86400000 },
     ],
   }));
   fs.writeFileSync(path.join(data, 'auth-secret'), 'e'.repeat(64));
@@ -132,4 +134,45 @@ test('stats/me returns detailed breakdown for current user', async () => {
   assert.equal(statsRes.json.rank, 2);
   assert.equal(statsRes.json.level, 1);
   assert.equal(statsRes.json.nextTarget, 10);
+});
+
+test('leaderboard excludes timed-banned users and exposes avatar -1 with avatarRev for custom avatars', async () => {
+  const loginCustom = await api('/alapi/auth/login', 'POST', { login: 'CustomUser', password: 'Pass-3' });
+  const tokenCustom = loginCustom.json.token;
+  assert.ok(tokenCustom);
+
+  await api('/alapi/sync', 'POST', {
+    progress: [{
+      animeId: 301,
+      episode: 1,
+      positionMs: 1200000,
+      durationMs: 1400000,
+      watched: true,
+      updatedAt: Date.now(),
+    }],
+  }, tokenCustom);
+
+  // Симулируем синхронизированные данные у временно забаненного пользователя.
+  const syncPath = path.join(data, 'sync.json');
+  const syncDb = JSON.parse(fs.readFileSync(syncPath, 'utf8'));
+  syncDb.users['4'] = {
+    progress: {
+      '401:1': { animeId: 401, episode: 1, positionMs: 1400000, durationMs: 1400000, watched: true, updatedAt: Date.now() },
+    },
+    favorites: {},
+  };
+  fs.writeFileSync(syncPath, JSON.stringify(syncDb));
+
+  // Инвалидируем кеш лидерборда через повторный /sync от CustomUser.
+  await api('/alapi/sync', 'POST', { progress: [] }, tokenCustom);
+
+  const lbRes = await api('/alapi/leaderboard', 'GET', null, tokenCustom);
+  assert.equal(lbRes.status, 200);
+  assert.equal(lbRes.json.leaderboard.some(x => x.nick === 'BannedUser'), false);
+
+  const customRow = lbRes.json.leaderboard.find(x => x.nick === 'CustomUser');
+  assert.ok(customRow);
+  assert.equal(customRow.avatar, -1);
+  assert.equal(customRow.avatarCustom, true);
+  assert.equal(customRow.avatarRev, 3);
 });

@@ -75,6 +75,7 @@ www.anipulsetv.ru {
 
 anipulsetv.ru {
 	import security_headers
+	encode zstd gzip
 	header {
 		X-Frame-Options "DENY"
 		# connect-src расширен до схемы https: hls.js тянет m3u8 и сегменты через
@@ -86,10 +87,14 @@ anipulsetv.ru {
 		# Тогда же добавлены wss://mc.yandex.ru (вебвизор Метрики открывает
 		# WebSocket, и он молча блокировался), kodikplayer.com (шлюз отдаёт
 		# ссылки на плеер именно туда), worker-src и object-src.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss:; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		# wss: сужен до wss://mc.yandex.ru (поверхностный аудит 2026-11-13).
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://mc.yandex.ru https://yastatic.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss://mc.yandex.ru; frame-src 'self' https://kodik.info https://*.kodik.info https://kodikplayer.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	}
 
 	handle /.well-known/assetlinks.json {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /auth/android-callback* {
 		reverse_proxy 127.0.0.1:8090
 	}
 	handle /license/* {

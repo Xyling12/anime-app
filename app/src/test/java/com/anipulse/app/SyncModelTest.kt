@@ -39,17 +39,20 @@ class SyncModelTest {
                     updatedAt = 1700000000000L,
                     deleted = false
                 )
-            )
+            ),
+            hiddenContinue = mapOf("42" to 1700000005000L)
         )
 
         val encoded = json.encodeToString(payload)
         assertTrue(encoded.contains("\"animeId\":42"))
         assertTrue(encoded.contains("\"positionMs\":120000"))
         assertTrue(encoded.contains("\"status\":\"watching\""))
+        assertTrue(encoded.contains("\"hiddenContinue\""))
 
         val decoded = json.decodeFromString<SyncPayload>(encoded)
         assertEquals(1, decoded.progress.size)
         assertEquals(1, decoded.favorites.size)
+        assertEquals(1700000005000L, decoded.hiddenContinue["42"])
         assertEquals(42L, decoded.progress[0].animeId)
         assertEquals(120_000L, decoded.progress[0].positionMs)
         assertEquals("watching", decoded.favorites[0].status)

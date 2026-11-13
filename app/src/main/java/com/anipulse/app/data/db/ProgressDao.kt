@@ -11,6 +11,9 @@ interface ProgressDao {
     @Upsert
     suspend fun upsert(progress: EpisodeProgress)
 
+    @Query("DELETE FROM episode_progress WHERE animeId = :animeId AND episode = :episode")
+    suspend fun delete(animeId: Long, episode: Int)
+
     @Query("SELECT * FROM episode_progress WHERE animeId = :animeId AND episode = :episode LIMIT 1")
     suspend fun get(animeId: Long, episode: Int): EpisodeProgress?
 
