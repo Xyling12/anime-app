@@ -106,6 +106,10 @@ android {
     }
 }
 
+base {
+    archivesName.set("AniPulse-${android.defaultConfig.versionName}")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
