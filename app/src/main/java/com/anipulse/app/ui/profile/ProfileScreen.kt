@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -423,6 +424,13 @@ private fun ProfileRedesign(
             })
         }
         ReferenceGroup {
+            if (com.anipulse.app.store.StoreReviewHelper.showRateInStoreAction) {
+                ReferenceRow(
+                    Icons.Outlined.StarOutline,
+                    "Оценить в RuStore",
+                    onClick = { com.anipulse.app.ui.common.openExternalUrl(context, com.anipulse.app.store.StoreReviewHelper.storeListingUrl) },
+                )
+            }
             ReferenceRow(Icons.Outlined.Info, "Версия приложения", com.anipulse.app.BuildConfig.VERSION_NAME)
         }
         if (state.nick == null) {

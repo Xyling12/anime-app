@@ -225,4 +225,26 @@ class SettingsStore @Inject constructor(
     var isDarkTheme: Boolean
         get() = prefs.getBoolean("is_dark_theme", true)
         set(v) = prefs.edit().putBoolean("is_dark_theme", v).apply()
+
+    /** Время первого запуска версии с учётом оценки магазина (инициализируется один раз). */
+    val firstSeenAtMs: Long
+        get() {
+            val existing = prefs.getLong("first_seen_at_ms", 0L)
+            if (existing > 0L) return existing
+            val now = System.currentTimeMillis()
+            prefs.edit().putLong("first_seen_at_ms", now).apply()
+            return now
+        }
+
+    var lastReviewAttemptAtMs: Long
+        get() = prefs.getLong("last_review_attempt_at_ms", 0L)
+        set(v) = prefs.edit().putLong("last_review_attempt_at_ms", v).apply()
+
+    var lastReviewPromptAtMs: Long
+        get() = prefs.getLong("last_review_prompt_at_ms", 0L)
+        set(v) = prefs.edit().putLong("last_review_prompt_at_ms", v).apply()
+
+    var reviewPromptCount: Int
+        get() = prefs.getInt("review_prompt_count", 0)
+        set(v) = prefs.edit().putInt("review_prompt_count", v).apply()
 }

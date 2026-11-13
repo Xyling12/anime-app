@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settings: SettingsStore
     @Inject lateinit var gateway: GatewayApi
     @Inject lateinit var syncRepository: com.anipulse.app.data.SyncRepository
+    @Inject lateinit var progressDao: com.anipulse.app.data.db.ProgressDao
 
     private var analyticsJob: Job? = null
     /** После обмена одноразового App Link-кода токен дополнительно проверяется через /auth/me
@@ -121,6 +122,7 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
         handleAuthDeepLink(intent)
+        settings.firstSeenAtMs
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { syncRepository.syncAll() } }
         setContent {
             Box {
@@ -230,18 +232,45 @@ class MainActivity : ComponentActivity() {
                                 Text(if (sendingCrash) "Отправка…" else "Отправить")
                             }
                         },
-                        dismissButton = {
-                            TextButton(
-                                enabled = !sendingCrash,
-                                onClick = {
-                                    com.anipulse.app.data.CrashReporter.clearPendingCrash(this@MainActivity)
-                                    pendingCrash = null
+                                dismissButton = {
+                                    TextButton(
+                                        enabled = !sendingCrash,
+                                        onClick = {
+                                            com.anipulse.app.data.CrashReporter.clearPendingCrash(this@MainActivity)
+                                            pendingCrash = null
+                                        },
+                                    ) { Text("Закрыть") }
                                 },
-                            ) { Text("Закрыть") }
-                        },
-                    )
-                }
-            }
+                            )
+                        }
+
+                        LaunchedEffect(reauthNotice, pendingLogin, pendingCrash) {
+                            if (reauthNotice || pendingLogin != null || pendingCrash != null) return@LaunchedEffect
+                            delay(4_000)
+                            if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@LaunchedEffect
+                            val watched = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching { progressDao.watchedEpisodes() }.getOrDefault(0)
+                            }
+                            if (com.anipulse.app.store.StoreReviewPolicy.shouldPromptReview(
+                                    watchedEpisodes = watched,
+                                    firstSeenAtMs = settings.firstSeenAtMs,
+                                    lastPromptAtMs = settings.lastReviewPromptAtMs,
+                                    lastAttemptAtMs = settings.lastReviewAttemptAtMs,
+                                    promptCount = settings.reviewPromptCount,
+                                    nowMs = System.currentTimeMillis(),
+                                )
+                            ) {
+                                com.anipulse.app.store.StoreReviewHelper.maybeRequestReview(
+                                    activity = this@MainActivity,
+                                    onPromptAttempted = { settings.lastReviewAttemptAtMs = System.currentTimeMillis() },
+                                    onReviewLaunched = {
+                                        settings.lastReviewPromptAtMs = System.currentTimeMillis()
+                                        settings.reviewPromptCount += 1
+                                    },
+                                )
+                            }
+                        }
+                    }
         }
     }
 

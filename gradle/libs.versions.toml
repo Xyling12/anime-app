@@ -53,6 +53,7 @@ androidx-security-crypto = { group = "androidx.security", name = "security-crypt
 sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
 androidx-sqlite = { group = "androidx.sqlite", name = "sqlite", version.ref = "sqliteAndroidx" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
+rustore-review = { group = "ru.rustore.sdk", name = "review", version = "10.5.2" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

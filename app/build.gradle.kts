@@ -146,6 +146,7 @@ dependencies {
     implementation(libs.sqlcipher)
     implementation(libs.androidx.sqlite)
     implementation(libs.androidx.core.splashscreen)
+    "rustoreImplementation"(libs.rustore.review)
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
