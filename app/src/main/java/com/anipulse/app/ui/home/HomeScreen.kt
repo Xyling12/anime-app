@@ -97,7 +97,10 @@ fun HomeScreen(
                         model = posterPreviewOf(anime.id, anime.image), contentDescription = null,
                         modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                     )
-                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.TopEnd).padding(12.dp))
+                    com.anipulse.app.ui.common.AgeRatingBadge(
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        rating = anime.rating,
+                    )
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF209090F)), startY = 80f)))
                     Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
                         Text("ОНГОИНГ", style = MaterialTheme.typography.labelSmall, color = Pulse, fontWeight = FontWeight.Bold)
@@ -219,7 +222,10 @@ fun HomeScreen(
             Column(Modifier.width(132.dp).clickable { onClick(anime.id) }) {
                 Box(Modifier.fillMaxWidth().height(184.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
                     AsyncImage(posterPreviewOf(anime.id, anime.image), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    com.anipulse.app.ui.common.AgeRatingBadge(Modifier.align(Alignment.BottomEnd).padding(6.dp))
+                    com.anipulse.app.ui.common.AgeRatingBadge(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                        rating = anime.rating,
+                    )
                     anime.score?.takeIf { it != "0.0" }?.let {
                         RatingBadge("★ $it", Color(0xFFFFD66B), Modifier.align(Alignment.TopEnd))
                     }

@@ -15,6 +15,7 @@ data class ShikiAnime(
     val episodes: Int = 0,
     @SerialName("episodes_aired") val episodesAired: Int = 0,
     @SerialName("aired_on") val airedOn: String? = null,
+    val rating: String? = null,
 )
 
 @Serializable

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -218,7 +219,10 @@ private fun UpdatesList(viewModel: ScheduleViewModel, onTitleClick: (Long) -> Un
 
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize()) {
-            items(state.updates) { u ->
+            itemsIndexed(
+                state.updates,
+                key = { index, u -> "${u.title}_${u.episode ?: 0}_${u.freshAt ?: ""}_$index" },
+            ) { _, u ->
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()

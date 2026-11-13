@@ -6,6 +6,7 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.os.Build
 import android.util.Rational
 import android.view.WindowManager
 import android.webkit.WebResourceRequest
@@ -63,7 +64,7 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -81,6 +82,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,8 +91,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,6 +113,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.anipulse.app.data.video.Dub
+import com.anipulse.app.data.video.VideoCache
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
@@ -207,10 +216,33 @@ fun PlayerScreen(
         }
         if (!isInPipMode && (stream == null || !stream.isNative)) {
             com.anipulse.app.ui.common.AgeRatingBadge(
-                Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                rating = state.rating,
             )
         }
     }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+private interface PlayerCacheEntryPoint {
+    fun videoCache(): VideoCache
+}
+
+private fun buildPipParams(
+    sourceRect: android.graphics.Rect?,
+    autoEnter: Boolean,
+): PictureInPictureParams {
+    val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))
+    if (sourceRect != null && !sourceRect.isEmpty) {
+        builder.setSourceRectHint(sourceRect)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        builder.setAutoEnterEnabled(autoEnter)
+        builder.setSeamlessResizeEnabled(true)
+    }
+    return builder.build()
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) // кастомные thumb/track у Slider и FlowRow для скоростей
@@ -230,6 +262,13 @@ private fun NativePlayer(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val screenW = with(density) { config.screenWidthDp.dp.toPx() }
     val screenH = with(density) { config.screenHeightDp.dp.toPx() }
+
+    val videoCache = remember(context) {
+        EntryPointAccessors
+            .fromApplication(context.applicationContext, PlayerCacheEntryPoint::class.java)
+            .videoCache()
+    }
+    var videoBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
 
     val exo = remember {
         // Больше буфера → меньше рывков/перебуферизации на нестабильной сети и медленных CDN.
@@ -288,6 +327,23 @@ private fun NativePlayer(
         }
     }
 
+    LaunchedEffect(activity, videoBounds, isPlaying) {
+        if (activity != null) {
+            runCatching {
+                activity.setPictureInPictureParams(buildPipParams(videoBounds, autoEnter = isPlaying))
+            }
+        }
+    }
+    DisposableEffect(activity) {
+        onDispose {
+            if (activity != null) {
+                runCatching {
+                    activity.setPictureInPictureParams(buildPipParams(null, autoEnter = false))
+                }
+            }
+        }
+    }
+
     LaunchedEffect(exo, state.playbackSpeed) {
         exo.setPlaybackSpeed(state.playbackSpeed)
     }
@@ -299,7 +355,8 @@ private fun NativePlayer(
         val url = s.byQuality[q] ?: s.byQuality.values.firstOrNull() ?: return@LaunchedEffect
         // При первом запуске серии — сохранённая позиция из БД; при смене качества — текущая позиция плеера.
         val resumeAt = if (exo.currentMediaItem == null) state.resumePositionMs else exo.currentPosition
-        exo.setMediaItem(MediaItem.fromUri(url))
+        val isLocal = url.startsWith("file://") || url.startsWith("/")
+        exo.setMediaSource(videoCache.mediaSourceFactory(isLocal).createMediaSource(MediaItem.fromUri(url)))
         exo.prepare()
         exo.setPlaybackSpeed(currentState.playbackSpeed)
         if (resumeAt > 1000) exo.seekTo(resumeAt)
@@ -318,7 +375,7 @@ private fun NativePlayer(
     }
 
     // Индикаторы жестов
-    var seekFeedback by remember { mutableStateOf(0) }        // -1 / +1 / 0
+    var seekFeedback by remember { mutableIntStateOf(0) }        // -1 / +1 / 0
     var brightnessOverlay by remember { mutableFloatStateOf(-1f) }
     var volumeOverlay by remember { mutableFloatStateOf(-1f) }
     var gestureVolume by remember { mutableFloatStateOf(0f) }
@@ -424,13 +481,27 @@ private fun NativePlayer(
     ) {
         AndroidView(
             factory = { ctx ->
-                (android.view.LayoutInflater.from(ctx).inflate(com.anipulse.app.R.layout.player_view, null) as PlayerView).apply {
+                (android.view.LayoutInflater.from(ctx).inflate(
+                    com.anipulse.app.R.layout.player_view,
+                    android.widget.FrameLayout(ctx),
+                    false,
+                ) as PlayerView).apply {
                     player = exo
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coords ->
+                    val rect = coords.boundsInWindow()
+                    videoBounds = android.graphics.Rect(
+                        rect.left.roundToInt(),
+                        rect.top.roundToInt(),
+                        rect.right.roundToInt(),
+                        rect.bottom.roundToInt(),
+                    )
+                },
         )
 
         if (buffering) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
@@ -451,7 +522,7 @@ private fun NativePlayer(
         }
         // Индикаторы яркости/громкости
         if (brightnessOverlay >= 0) GestureBadge(Icons.Filled.Brightness6, brightnessOverlay)
-        if (volumeOverlay >= 0) GestureBadge(Icons.Filled.VolumeUp, volumeOverlay)
+        if (volumeOverlay >= 0) GestureBadge(Icons.AutoMirrored.Filled.VolumeUp, volumeOverlay)
 
         // Панели управления (с автоскрытием)
         AnimatedVisibility(visible = controlsVisible && !isInPipMode, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
@@ -493,7 +564,10 @@ private fun NativePlayer(
                             maxLines = 1,
                             softWrap = false,
                         )
-                        com.anipulse.app.ui.common.AgeRatingBadge(Modifier.padding(start = 10.dp))
+                        com.anipulse.app.ui.common.AgeRatingBadge(
+                            modifier = Modifier.padding(start = 10.dp),
+                            rating = state.rating,
+                        )
                     }
                     // Выбор качества
                     val qualities = state.stream?.byQuality?.keys?.sortedDescending().orEmpty()
@@ -532,7 +606,7 @@ private fun NativePlayer(
                             commentsMenu = false
                             runCatching {
                                 activity?.enterPictureInPictureMode(
-                                    PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build(),
+                                    buildPipParams(videoBounds, autoEnter = true),
                                 )
                             }.onFailure {
                                 Toast.makeText(context, "Мини-плеер недоступен на этом устройстве", Toast.LENGTH_SHORT).show()
@@ -751,7 +825,8 @@ private fun NativePlayer(
 
             if (!controlsVisible) {
                 com.anipulse.app.ui.common.AgeRatingBadge(
-                    Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                    rating = state.rating,
                 )
             }
         }
@@ -787,8 +862,7 @@ private fun NativePlayer(
                             )
                         }
                     }
-                    items(state.comments.size) { i ->
-                        val cm = state.comments[i]
+                    items(state.comments, key = { "cm-${it.id}" }) { cm ->
                         Row {
                             com.anipulse.app.ui.common.Avatar(
                                 cm.avatar,
@@ -904,7 +978,7 @@ private fun NativePlayer(
             ) {
                 Text("Скорость", color = Color.White, fontWeight = FontWeight.SemiBold)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(PLAYBACK_SPEEDS) { spd ->
+                    items(PLAYBACK_SPEEDS, key = { it }) { spd ->
                         FilterChip(
                             selected = spd == state.playbackSpeed,
                             onClick = { viewModel.setPlaybackSpeed(spd); speedMenu = false },
@@ -984,7 +1058,7 @@ private fun DubMenu(dubs: List<Dub>, selected: Dub?, onSelect: (Dub) -> Unit) {
     ) {
         Text("Озвучка", color = Color.White, fontWeight = FontWeight.SemiBold)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(dubs) { dub ->
+            items(dubs, key = { it.id }) { dub ->
                 FilterChip(
                     selected = dub.id == selected?.id,
                     onClick = { onSelect(dub) },

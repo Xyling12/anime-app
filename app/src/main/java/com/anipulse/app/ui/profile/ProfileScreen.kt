@@ -62,6 +62,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -264,7 +265,13 @@ private fun ProfileRedesign(
                     Text("Просмотр и «Моё» работают без входа", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Surface(color = Color(0x33FF4D8D), shape = RoundedCornerShape(6.dp)) {
-                    Text("BETA · В разработке", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Color(0xFFFF4D8D), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "AniPulse ${com.anipulse.app.BuildConfig.VERSION_NAME}",
+                        Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        color = Color(0xFFFF4D8D),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
@@ -430,9 +437,9 @@ private fun AvatarCropDialog(
     onDismiss: () -> Unit,
     onCrop: (ByteArray) -> Unit,
 ) {
-    var horizontal by remember { mutableStateOf(.5f) }
-    var vertical by remember { mutableStateOf(.5f) }
-    var zoom by remember { mutableStateOf(1f) }
+    var horizontal by remember { mutableFloatStateOf(.5f) }
+    var vertical by remember { mutableFloatStateOf(.5f) }
+    var zoom by remember { mutableFloatStateOf(1f) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
@@ -1180,7 +1187,7 @@ fun LeaderboardDialog(
                                     modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
                                 )
                             }
-                            items(rest) { entry ->
+                            items(rest, key = { "${it.rank}_${it.userId}_${it.nick}" }) { entry ->
                                 LeaderboardRow(entry, isMe = state.userId > 0 && entry.userId == state.userId)
                             }
                         }

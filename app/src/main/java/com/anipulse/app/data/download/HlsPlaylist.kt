@@ -29,7 +29,7 @@ internal object HlsPlaylist {
 
     /** Ответ — плейлист, а не сам видеофайл. */
     fun looksLikePlaylist(head: String): Boolean =
-        head.trimStart('﻿', ' ', '\t', '\r', '\n').startsWith("#EXTM3U")
+        head.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U")
 
     fun parse(text: String, playlistUrl: String): Parsed {
         val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()

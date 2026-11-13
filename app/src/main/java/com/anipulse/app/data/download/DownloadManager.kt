@@ -1,6 +1,13 @@
 package com.anipulse.app.data.download
 
 import android.content.Context
+import android.os.storage.StorageManager
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -71,11 +80,10 @@ class DownloadManager @Inject constructor(
     private val _downloadedList = MutableStateFlow<List<DownloadedItem>>(loadFromPrefs())
     val downloadedList: StateFlow<List<DownloadedItem>> = _downloadedList.asStateFlow()
 
-    // Серия качается минутами: во viewModelScope экрана тайтла загрузка обрывалась бы
-    // при выходе назад. Своя область живёт вместе с приложением.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inProgress = Collections.synchronizedSet(mutableSetOf<Pair<Long, Int>>())
     private val listLock = Any()
+    private val concurrencySemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
     init {
         // Версии до этого исправления сохраняли плейлист вместо видео. Такие «загрузки»
@@ -94,10 +102,8 @@ class DownloadManager @Inject constructor(
     }
 
     private val downloadsDir: File
-        get() {
-            val dir = File(context.getExternalFilesDir(null), "episodes")
-            if (!dir.exists()) dir.mkdirs()
-            return dir
+        get() = File(context.filesDir, "downloads").apply {
+            if (!exists()) mkdirs()
         }
 
     fun getAllDownloaded(): List<DownloadedItem> = _downloadedList.value
@@ -105,31 +111,30 @@ class DownloadManager @Inject constructor(
     fun isDownloaded(animeId: Long, episode: Int): Boolean = getLocalFile(animeId, episode) != null
 
     fun getLocalFile(animeId: Long, episode: Int): File? {
-        val item = getAllDownloaded().find { it.animeId == animeId && it.episode == episode } ?: return null
+        val item = _downloadedList.value.find { it.animeId == animeId && it.episode == episode } ?: return null
         val file = File(downloadsDir, item.fileName)
         return if (isPlayable(file)) file else null
     }
 
-    /** Видео, а не текст плейлиста или HTML-страница плеера под именем `.mp4`. */
+    // Проверяем не только факт непустого файла, но и то, что внутри видео, а не текст плейлиста.
     private fun isPlayable(file: File): Boolean {
-        if (!file.exists() || file.length() == 0L) return false
-        val head = runCatching {
-            file.inputStream().use { input ->
-                val buffer = ByteArray(16)
-                String(buffer, 0, input.read(buffer).coerceAtLeast(0), Charsets.ISO_8859_1)
-            }
-        }.getOrDefault("")
-        return !HlsPlaylist.looksLikePlaylist(head) && !head.trimStart().startsWith("<")
+        if (!file.exists() || file.length() < 1024) return false
+        val head = ByteArray(16)
+        val read = runCatching { file.inputStream().use { it.read(head) } }.getOrDefault(0)
+        if (read <= 0) return false
+        val text = String(head, 0, read, Charsets.ISO_8859_1).trimStart()
+        return !text.startsWith("#EXTM3U") && !text.startsWith("<")
     }
 
     private fun pruneBroken() = synchronized(listLock) {
-        val (playable, broken) = loadFromPrefs().partition { isPlayable(File(downloadsDir, it.fileName)) }
-        if (broken.isEmpty()) return@synchronized
-        broken.forEach { File(downloadsDir, it.fileName).delete() }
-        saveList(playable)
+        val current = loadFromPrefs()
+        val valid = current.filter { isPlayable(File(downloadsDir, it.fileName)) }
+        if (valid.size == current.size) return@synchronized
+        (current - valid.toSet()).forEach { File(downloadsDir, it.fileName).delete() }
+        saveList(valid)
     }
 
-    /** Поставить серию на скачивание. Повторное нажатие на ту же серию игнорируется. */
+    /** Поставить серию в очередь WorkManager на скачивание. Повторное нажатие игнорируется. */
     fun enqueue(
         animeId: Long,
         episode: Int,
@@ -139,14 +144,80 @@ class DownloadManager @Inject constructor(
         posterId: String? = null,
         image: String? = null,
     ) {
+        try {
+            HlsPlaylist.requireHttpsUrl(streamUrl)
+        } catch (e: HlsPlaylist.UnsupportedPlaylistException) {
+            reportError(animeId, episode, e.message ?: "Эту серию нельзя скачать")
+            return
+        }
+
         val key = animeId to episode
         if (!inProgress.add(key)) return
-        scope.launch {
-            try {
-                download(animeId, episode, title, dubTitle, streamUrl, posterId, image)
-            } finally {
-                inProgress.remove(key)
+        _downloadState.value = DownloadState.Downloading(animeId, episode, 0)
+
+        val request = OneTimeWorkRequestBuilder<EpisodeDownloadWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setInputData(
+                workDataOf(
+                    EpisodeDownloadWorker.KEY_ANIME_ID to animeId,
+                    EpisodeDownloadWorker.KEY_EPISODE to episode,
+                    EpisodeDownloadWorker.KEY_TITLE to title,
+                    EpisodeDownloadWorker.KEY_DUB_TITLE to dubTitle,
+                    EpisodeDownloadWorker.KEY_STREAM_URL to streamUrl,
+                    EpisodeDownloadWorker.KEY_POSTER_ID to posterId,
+                    EpisodeDownloadWorker.KEY_IMAGE to image,
+                )
+            )
+            .addTag(workName(animeId, episode))
+            .build()
+
+        val scheduled = runCatching {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                workName(animeId, episode),
+                ExistingWorkPolicy.KEEP,
+                request,
+            )
+        }
+        if (scheduled.isFailure) {
+            // Запасной путь, если WorkManager не инициализирован (например, в изолированных окружениях).
+            scope.launch {
+                runWorkerDownload(animeId, episode, title, dubTitle, streamUrl, posterId, image) {}
             }
+        }
+    }
+
+    /** Отменить активную или поставленную в очередь загрузку серии. */
+    fun cancelDownload(animeId: Long, episode: Int) {
+        runCatching { WorkManager.getInstance(context).cancelUniqueWork(workName(animeId, episode)) }
+        inProgress.remove(animeId to episode)
+        val current = _downloadState.value
+        if (current is DownloadState.Downloading && current.animeId == animeId && current.episode == episode) {
+            _downloadState.value = DownloadState.Idle
+        }
+    }
+
+    internal suspend fun runWorkerDownload(
+        animeId: Long,
+        episode: Int,
+        title: String,
+        dubTitle: String,
+        streamUrl: String,
+        posterId: String?,
+        image: String?,
+        onProgressPercent: suspend (Int) -> Unit,
+    ) {
+        val key = animeId to episode
+        inProgress.add(key)
+        try {
+            concurrencySemaphore.withPermit {
+                download(animeId, episode, title, dubTitle, streamUrl, posterId, image, onProgressPercent)
+            }
+        } finally {
+            inProgress.remove(key)
         }
     }
 
@@ -158,15 +229,18 @@ class DownloadManager @Inject constructor(
         streamUrl: String,
         posterId: String?,
         image: String?,
+        onProgressPercent: suspend (Int) -> Unit,
     ) {
         _downloadState.value = DownloadState.Downloading(animeId, episode, 0)
         val baseName = "${animeId}_ep${episode}_${System.currentTimeMillis()}"
         val partFile = File(downloadsDir, "$baseName.part")
         var lastPercent = 0
-        val onProgress = { percent: Int ->
-            if (percent != lastPercent) {
-                lastPercent = percent
-                _downloadState.value = DownloadState.Downloading(animeId, episode, percent)
+        val onProgress: suspend (Int) -> Unit = { percent ->
+            val clamped = percent.coerceIn(0, 100)
+            if (clamped != lastPercent) {
+                lastPercent = clamped
+                _downloadState.value = DownloadState.Downloading(animeId, episode, clamped)
+                onProgressPercent(clamped)
             }
         }
 
@@ -196,6 +270,7 @@ class DownloadManager @Inject constructor(
             publish(DownloadState.Completed(animeId, episode))
         } catch (e: CancellationException) {
             partFile.delete()
+            _downloadState.value = DownloadState.Idle
             throw e
         } catch (e: Exception) {
             partFile.delete()
@@ -216,7 +291,7 @@ class DownloadManager @Inject constructor(
      * Пишет серию в [out] и возвращает расширение файла. Прямая ссылка на файл
      * копируется как есть; плейлист HLS — скачиваются и склеиваются его кусочки.
      */
-    private suspend fun writeEpisode(url: String, out: OutputStream, onProgress: (Int) -> Unit): String {
+    private suspend fun writeEpisode(url: String, out: OutputStream, onProgress: suspend (Int) -> Unit): String {
         val safeUrl = HlsPlaylist.requireHttpsUrl(url)
         val playlist = client.newCall(Request.Builder().url(safeUrl).build()).execute().use { response ->
             if (!response.isSuccessful) throw HttpStatusException(response.code)
@@ -246,7 +321,7 @@ class DownloadManager @Inject constructor(
         return if (media.initSegment != null) "mp4" else "ts"
     }
 
-    private suspend fun copyWithProgress(body: ResponseBody, out: OutputStream, onProgress: (Int) -> Unit) {
+    private suspend fun copyWithProgress(body: ResponseBody, out: OutputStream, onProgress: suspend (Int) -> Unit) {
         val total = body.contentLength()
         var copied = 0L
         body.byteStream().use { input ->
@@ -286,26 +361,37 @@ class DownloadManager @Inject constructor(
         throw lastError ?: IOException("Не удалось скачать")
     }
 
+    private fun availableBytes(): Long = runCatching {
+        val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+        if (sm != null) sm.getAllocatableBytes(sm.getUuidForPath(downloadsDir)) else downloadsDir.usableSpace
+    }.getOrElse { downloadsDir.usableSpace }
+
     private fun userMessage(e: Exception): String = when {
         e is HlsPlaylist.UnsupportedPlaylistException -> e.message ?: "Эту серию нельзя скачать"
         e is HttpStatusException -> "Сервер видео ответил ошибкой ${e.code}. Попробуйте другую озвучку"
-        downloadsDir.usableSpace < LOW_SPACE_BYTES -> "Не хватает места на устройстве"
+        availableBytes() < LOW_SPACE_BYTES -> "Не хватает места на устройстве"
         e is IOException -> "Загрузка прервалась. Проверьте интернет и попробуйте ещё раз"
         else -> "Не удалось скачать серию"
     }
 
-    fun deleteDownload(animeId: Long, episode: Int) = synchronized(listLock) {
-        val current = loadFromPrefs()
-        val item = current.find { it.animeId == animeId && it.episode == episode } ?: return@synchronized
-        File(downloadsDir, item.fileName).delete()
-        saveList(current.filterNot { it.animeId == animeId && it.episode == episode })
+    fun deleteDownload(animeId: Long, episode: Int) {
+        cancelDownload(animeId, episode)
+        synchronized(listLock) {
+            val current = loadFromPrefs()
+            val item = current.find { it.animeId == animeId && it.episode == episode } ?: return@synchronized
+            File(downloadsDir, item.fileName).delete()
+            saveList(current.filterNot { it.animeId == animeId && it.episode == episode })
+        }
     }
 
     private class HttpStatusException(val code: Int) : IOException("HTTP $code")
 
-    private companion object {
+    companion object {
         const val FETCH_ATTEMPTS = 3
         const val RETRY_DELAY_MS = 1_000L
         const val LOW_SPACE_BYTES = 50L * 1024 * 1024
+        const val MAX_CONCURRENT_DOWNLOADS = 2
+
+        fun workName(animeId: Long, episode: Int): String = "download_${animeId}_ep${episode}"
     }
 }

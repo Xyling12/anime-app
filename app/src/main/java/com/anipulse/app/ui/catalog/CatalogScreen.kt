@@ -312,7 +312,8 @@ fun PosterCard(anime: ShikiAnime, onClick: () -> Unit, pulseRating: Double? = nu
                 contentScale = ContentScale.Crop,
             )
             com.anipulse.app.ui.common.AgeRatingBadge(
-                Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                rating = anime.rating,
             )
             anime.score?.takeIf { it != "0.0" }?.let { score ->
                 Text(

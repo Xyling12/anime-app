@@ -191,6 +191,10 @@ fun TitleScreen(
                 selectedEpisodeSheet = null
                 viewModel.deleteDownload(ep)
             },
+            onCancelDownload = {
+                selectedEpisodeSheet = null
+                viewModel.cancelDownload(ep)
+            },
         )
     }
 
@@ -243,7 +247,8 @@ fun TitleScreen(
                         }
                         if (d != null) {
                             com.anipulse.app.ui.common.AgeRatingBadge(
-                                Modifier.align(Alignment.TopStart).padding(top = 92.dp, start = 12.dp),
+                                modifier = Modifier.align(Alignment.TopStart).padding(top = 92.dp, start = 12.dp),
+                                rating = d.rating,
                             )
                             if (d.status == "ongoing") {
                                 IconButton(
@@ -302,7 +307,7 @@ fun TitleScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(d.genres) { g -> AssistChip(onClick = {}, label = { Text(g.russian ?: g.name) }) }
+                            items(d.genres, key = { it.id }) { g -> AssistChip(onClick = {}, label = { Text(g.russian ?: g.name) }) }
                         }
                     }
 
@@ -479,7 +484,7 @@ fun TitleScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(state.dubs) { dub ->
+                            items(state.dubs, key = { it.id }) { dub ->
                                 FilterChip(
                                     selected = state.selectedDub?.id == dub.id,
                                     onClick = { viewModel.selectDub(dub) },
@@ -665,7 +670,7 @@ fun TitleScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        items(visible.chunked(5)) { rowEps ->
+                        items(visible.chunked(5), key = { row -> row.first() }) { rowEps ->
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -887,6 +892,7 @@ private fun EpisodeBottomSheet(
     onPlayStartOver: () -> Unit,
     onDownload: () -> Unit,
     onDeleteDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -1103,10 +1109,13 @@ private fun EpisodeBottomSheet(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
-                                    "Пожалуйста, подождите завершения",
+                                    "Можно свернуть приложение — загрузка продолжится",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                            TextButton(onClick = onCancelDownload) {
+                                Text("Отменить")
                             }
                         }
                     }

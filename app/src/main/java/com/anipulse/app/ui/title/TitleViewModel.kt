@@ -357,6 +357,7 @@ class TitleViewModel @Inject constructor(
             episode = episode,
             totalEpisodes = episodeCount(),
             startOver = startOver,
+            rating = d.details?.rating,
         )
     }
 
@@ -391,5 +392,9 @@ class TitleViewModel @Inject constructor(
 
     fun deleteDownload(episode: Int) {
         downloadManager.deleteDownload(animeId, episode)
+    }
+
+    fun cancelDownload(episode: Int) {
+        downloadManager.cancelDownload(animeId, episode)
     }
 }

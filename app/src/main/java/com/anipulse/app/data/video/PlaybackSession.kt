@@ -18,6 +18,7 @@ class PlaybackSession @Inject constructor() {
     var totalEpisodes: Int = 0
     /** true — начать серию с начала, игнорируя сохранённую позицию. */
     var startOver: Boolean = false
+    var rating: String? = null
 
     fun start(
         animeId: Long,
@@ -28,6 +29,7 @@ class PlaybackSession @Inject constructor() {
         episode: Int,
         totalEpisodes: Int,
         startOver: Boolean,
+        rating: String? = null,
     ) {
         this.animeId = animeId
         this.title = title
@@ -37,6 +39,7 @@ class PlaybackSession @Inject constructor() {
         this.episode = episode
         this.totalEpisodes = totalEpisodes
         this.startOver = startOver
+        this.rating = rating
     }
 
     fun selectedDub(): Dub? = dubs.firstOrNull { it.id == selectedDubId } ?: dubs.firstOrNull()

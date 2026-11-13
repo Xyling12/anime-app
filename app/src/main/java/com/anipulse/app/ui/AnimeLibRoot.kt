@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -311,31 +310,6 @@ fun AnimeLibRoot(menuViewModel: RootMenuViewModel = androidx.hilt.navigation.com
     }
     }
 }
-}
-
-/** Иконка в шапке с розовой точкой-бейджем непрочитанного в углу. */
-@Composable
-private fun BadgedIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    showBadge: Boolean,
-    onClick: () -> Unit,
-) {
-    Box {
-        IconButton(onClick = onClick) {
-            Icon(icon, contentDescription = contentDescription)
-        }
-        if (showBadge) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 6.dp, end = 6.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF4D8D)),
-            )
-        }
-    }
 }
 
 /**
