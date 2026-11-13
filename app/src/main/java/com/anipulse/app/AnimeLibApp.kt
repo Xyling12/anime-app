@@ -71,6 +71,7 @@ class AnimeLibApp : Application(), coil.ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        com.anipulse.app.data.CrashReporter.install(this)
         Thread({
             // Фоновая работа не должна пережить проверку подписи: воркер ходит на сервер
             // с токеном раз в 30 минут, и в перепакованной сборке он продолжал бы качать

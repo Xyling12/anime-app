@@ -20,7 +20,7 @@ import javax.inject.Singleton
 object DatabaseModule {
 
     // v1→v2: добавлена таблица избранного. Прогресс просмотра не трогаем.
-    private val MIGRATION_1_2 = object : Migration(1, 2) {
+    internal val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
@@ -37,14 +37,14 @@ object DatabaseModule {
     }
 
     // v2→v3: статус тайтла в «Моё» (смотрю/в планах/просмотрено).
-    private val MIGRATION_2_3 = object : Migration(2, 3) {
+    internal val MIGRATION_2_3 = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE `favorites` ADD COLUMN `status` TEXT NOT NULL DEFAULT 'none'")
         }
     }
 
     // v3→v4: «скрыть из подбора» для ленты «Продолжить просмотр».
-    private val MIGRATION_3_4 = object : Migration(3, 4) {
+    internal val MIGRATION_3_4 = object : Migration(3, 4) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """

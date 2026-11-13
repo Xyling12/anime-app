@@ -172,6 +172,75 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { TextButton(onClick = { pendingLogin = null }) { Text("Отмена") } },
                     )
                 }
+
+                var pendingCrash by remember {
+                    mutableStateOf(com.anipulse.app.data.CrashReporter.readPendingCrash(this@MainActivity))
+                }
+                var sendingCrash by remember { mutableStateOf(false) }
+                pendingCrash?.let { crash ->
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (!sendingCrash) {
+                                com.anipulse.app.data.CrashReporter.clearPendingCrash(this@MainActivity)
+                                pendingCrash = null
+                            }
+                        },
+                        title = { Text("Приложение завершилось с ошибкой") },
+                        text = {
+                            val detail = crash.summary.ifBlank { "неизвестная ошибка" }
+                            Text(
+                                "В прошлый раз произошёл сбой ($detail). " +
+                                    "Отправить технический отчёт разработчику?"
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                enabled = !sendingCrash,
+                                onClick = {
+                                    sendingCrash = true
+                                    lifecycleScope.launch {
+                                        val bearer = settings.authToken?.let { "Bearer $it" }
+                                        val body = com.anipulse.app.data.BugReportRequest(
+                                            text = crash.reportText,
+                                            device = crash.device,
+                                            osVersion = crash.osVersion,
+                                        )
+                                        runCatching { gateway.sendBugReport(bearer, body) }
+                                            .onSuccess {
+                                                com.anipulse.app.data.CrashReporter.clearPendingCrash(this@MainActivity)
+                                                pendingCrash = null
+                                                sendingCrash = false
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "Отчёт отправлен, спасибо!",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                            .onFailure {
+                                                sendingCrash = false
+                                                Toast.makeText(
+                                                    this@MainActivity,
+                                                    "Не удалось отправить отчёт",
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                    }
+                                },
+                            ) {
+                                Text(if (sendingCrash) "Отправка…" else "Отправить")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                enabled = !sendingCrash,
+                                onClick = {
+                                    com.anipulse.app.data.CrashReporter.clearPendingCrash(this@MainActivity)
+                                    pendingCrash = null
+                                },
+                            ) { Text("Закрыть") }
+                        },
+                    )
+                }
             }
         }
     }
