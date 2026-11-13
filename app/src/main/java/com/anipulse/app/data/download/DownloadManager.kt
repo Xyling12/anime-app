@@ -217,7 +217,8 @@ class DownloadManager @Inject constructor(
      * копируется как есть; плейлист HLS — скачиваются и склеиваются его кусочки.
      */
     private suspend fun writeEpisode(url: String, out: OutputStream, onProgress: (Int) -> Unit): String {
-        val playlist = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+        val safeUrl = HlsPlaylist.requireHttpsUrl(url)
+        val playlist = client.newCall(Request.Builder().url(safeUrl).build()).execute().use { response ->
             if (!response.isSuccessful) throw HttpStatusException(response.code)
             val body = response.body ?: throw IOException("Пустой ответ сервера")
             if (!HlsPlaylist.looksLikePlaylist(response.peekBody(64).string())) {
@@ -227,7 +228,7 @@ class DownloadManager @Inject constructor(
             body.string()
         }
 
-        var media = HlsPlaylist.parse(playlist, url)
+        var media = HlsPlaylist.parse(playlist, safeUrl)
         if (media is HlsPlaylist.Parsed.Master) {
             val variantUrl = media.variantUrl
             media = HlsPlaylist.parse(String(fetch(variantUrl), Charsets.UTF_8), variantUrl)
@@ -266,11 +267,12 @@ class DownloadManager @Inject constructor(
      * середине повтор не допишет в склейку половину кусочка дважды.
      */
     private suspend fun fetch(url: String): ByteArray {
+        val safeUrl = HlsPlaylist.requireHttpsUrl(url)
         var lastError: IOException? = null
         repeat(FETCH_ATTEMPTS) { attempt ->
             coroutineContext.ensureActive()
             try {
-                client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                client.newCall(Request.Builder().url(safeUrl).build()).execute().use { response ->
                     if (!response.isSuccessful) throw HttpStatusException(response.code)
                     return response.body?.bytes() ?: throw IOException("Пустой ответ сервера")
                 }

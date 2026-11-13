@@ -101,4 +101,15 @@ class HlsPlaylistTest {
         assertFalse(HlsPlaylist.looksLikePlaylist("G@\u0011\u0010\u0000"))
         assertFalse(HlsPlaylist.looksLikePlaylist("\u0000\u0000\u0000\u0018ftypmp42"))
     }
+
+    @Test(expected = HlsPlaylist.UnsupportedPlaylistException::class)
+    fun insecureHttpPlaylistIsRejected() {
+        HlsPlaylist.requireHttpsUrl("http://cdn.example/video.mp4")
+    }
+
+    @Test(expected = HlsPlaylist.UnsupportedPlaylistException::class)
+    fun insecureHttpSegmentIsRejected() {
+        val text = "#EXTM3U\n#EXTINF:6,\nhttp://cdn.example/a.ts\n"
+        HlsPlaylist.parse(text, "https://host.example/index.m3u8")
+    }
 }

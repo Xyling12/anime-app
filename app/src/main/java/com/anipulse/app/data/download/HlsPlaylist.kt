@@ -68,6 +68,17 @@ internal object HlsPlaylist {
     }
 
     /**
+     * Проверяет, что ссылка корректная и использует HTTPS (без открытого HTTP или file://).
+     */
+    internal fun requireHttpsUrl(url: String): String {
+        val parsed = url.toHttpUrlOrNull()
+        if (parsed == null || !parsed.isHttps) {
+            throw UnsupportedPlaylistException("Небезопасная или некорректная ссылка на видео")
+        }
+        return parsed.toString()
+    }
+
+    /**
      * Ссылки в плейлисте относительные и с двоеточиями: `720.mp4:hls:seg-1-v1-a1.ts`.
      * Без `./` часть до двоеточия может быть принята за схему URL, поэтому
      * относительную ссылку явно привязываем к каталогу плейлиста.
@@ -75,9 +86,16 @@ internal object HlsPlaylist {
     internal fun resolve(base: String, ref: String): String {
         val baseUrl = base.toHttpUrlOrNull()
             ?: throw UnsupportedPlaylistException("Некорректная ссылка на плейлист")
+        if (!baseUrl.isHttps) {
+            throw UnsupportedPlaylistException("Небезопасная ссылка на плейлист")
+        }
         val absolute = ref.startsWith("http://") || ref.startsWith("https://") || ref.startsWith("/")
-        return (baseUrl.resolve(if (absolute) ref else "./$ref")
-            ?: throw UnsupportedPlaylistException("Некорректная ссылка в плейлисте")).toString()
+        val resolved = baseUrl.resolve(if (absolute) ref else "./$ref")
+            ?: throw UnsupportedPlaylistException("Некорректная ссылка в плейлисте")
+        if (!resolved.isHttps) {
+            throw UnsupportedPlaylistException("Небезопасная ссылка в плейлисте")
+        }
+        return resolved.toString()
     }
 
     /** Значение атрибута тега: `METHOD=AES-128` или `URI="init.mp4"`. */
